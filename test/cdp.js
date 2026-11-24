@@ -5,7 +5,7 @@ const net = require('net');
 const crypto = require('crypto');
 const http = require('http');
 
-const PORT = 9333;
+const PORT = Number(process.env.CDP_PORT || 9333);
 
 function httpGet(path) {
   return new Promise((resolve, reject) => {

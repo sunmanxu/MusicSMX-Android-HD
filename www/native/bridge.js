@@ -662,7 +662,7 @@
 
   // ---------------- window.mb 契约 ----------------
 
-  const listeners = { scanProgress: null, fullscreen: null, tray: null };
+  const listeners = { scanProgress: null, fullscreen: null, tray: null, updateProgress: null };
   let firstScanUsed = false;
 
   window.__mbEmit = function (channel, data) {
@@ -670,6 +670,7 @@
       if (channel === '__scanProgress' && listeners.scanProgress) listeners.scanProgress(data);
       else if (channel === '__fullscreen' && listeners.fullscreen) listeners.fullscreen(!!data && !!data.on);
       else if (channel === '__tray' && listeners.tray) listeners.tray(data && data.action, data && data.value);
+      else if (channel === '__updateProgress' && listeners.updateProgress) listeners.updateProgress(data || {});
       else if (channel === '__libraryChanged') onLibraryChanged(data);
     } catch (e) { /* 渲染层回调出错不能影响原生 */ }
   };
@@ -704,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.20-android',
+    version: '1.0.21-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -1038,7 +1039,38 @@
       return nativeCall('writeMusicMetadata', { path: path || '', title: title || '', artist: artist || '', album: album || '' });
     },
     convertToMp3: function () { return Promise.resolve({ ok: false, error: '安卓端暂不支持格式转换' }); },
-    convertFormat: function () { return Promise.resolve({ ok: false, error: '安卓端暂不支持格式转换' }); }
+    convertFormat: function () { return Promise.resolve({ ok: false, error: '安卓端暂不支持格式转换' }); },
+
+    // ---- 应用内更新（1.0.21）----
+    // 原生负责：查 GitHub Release / 下载到 cache/updates / 交给系统安装器。
+    // 这里只做版本号比较和事件转发，UI 在 updateCenter（同文件后半段）。
+    checkUpdate: function () {
+      return nativeCall('updateCheck').catch(function (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      });
+    },
+    downloadUpdate: function (url, fileName, size, onProgress) {
+      listeners.updateProgress = onProgress || null;
+      return nativeCall('updateDownload', {
+        url: url || '', fileName: fileName || '', size: size || 0
+      }).catch(function (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }).then(function (r) {
+        listeners.updateProgress = null;
+        return r;
+      });
+    },
+    installUpdate: function (path) {
+      return nativeCall('updateInstall', { path: path || '' }).catch(function (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      });
+    },
+    openUpdatePage: function (url) {
+      return nativeCall('updateOpenPage', { url: url || '' }).catch(function () { return { ok: false }; });
+    },
+    openUpdateUninstall: function () {
+      return nativeCall('updateOpenUninstall').catch(function () { return { ok: false }; });
+    }
   };
 
   window.mb = mb;
@@ -2137,6 +2169,194 @@
     setTimeout(installFooterCoverFast, 2000);
     installFooterRefetch();
     setTimeout(installFooterRefetch, 800);
+    // 设置里的「检查更新」（1.0.21）
+    installUpdateCenter();
+    setTimeout(installUpdateCenter, 900);
+    setTimeout(installUpdateCenter, 2400);
+  }
+
+  // ---------------- 应用内更新（1.0.21） ----------------
+  // 流程：查 GitHub Release → 比版本号 → 下载到 cache/updates（带进度）→ 交系统安装器。
+  // 签名/包名先在原生下载日志里验过，不一致就不往系统安装器里送，免得只留一句"未安装"。
+
+  const UPD = { phase: 'idle', info: null, path: null, apk: null, busy: false, installed: false };
+
+  function verParts(v) {
+    // 'android-v1.0.20' / 'v1.0.20' / '1.0.20' / '1.0.3-beta' 都能吃
+    const s = String(v || '').replace(/^android-/i, '').replace(/^v/i, '');
+    const m = s.match(/^(\d+(?:\.\d+)*)/);
+    if (!m) return null;
+    return m[1].split('.').map(function (x) { return parseInt(x, 10) || 0; });
+  }
+  function cmpVer(a, b) {
+    const A = verParts(a), B = verParts(b);
+    if (!A || !B) return 0;
+    const n = Math.max(A.length, B.length);
+    for (let i = 0; i < n; i++) {
+      const x = A[i] || 0, y = B[i] || 0;
+      if (x !== y) return x > y ? 1 : -1;
+    }
+    return 0;
+  }
+  function fmtMB(bytes) {
+    const b = Number(bytes) || 0;
+    return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
+  }
+
+  function updLine(text, kind) {
+    const el = document.getElementById('mb-update-line');
+    if (!el) return;
+    el.textContent = text;
+    el.setAttribute('data-kind', kind || '');
+  }
+  function updBar(pct, show) {
+    const box = document.getElementById('mb-update-bar');
+    if (!box) return;
+    box.hidden = !show;
+    const i = box.querySelector('i');
+    if (i) i.style.width = Math.max(0, Math.min(100, Number(pct) || 0)) + '%';
+  }
+  function updBtn(text) {
+    const b = document.getElementById('btn-check-update');
+    if (b) b.textContent = text;
+  }
+
+  function updCurrentVersion() {
+    return (mb && mb.version ? String(mb.version).replace(/-android$/, '') : '');
+  }
+
+  /** 点第一下：去 GitHub 看有没有新版本 */
+  function doCheckUpdate() {
+    if (UPD.busy) return;
+    UPD.busy = true;
+    UPD.installed = false;
+    updBtn('检查中…');
+    updBar(0, false);
+    updLine('正在查 GitHub 上的最新版本…', 'warn');
+    mb.checkUpdate().then(function (r) {
+      UPD.busy = false;
+      updBtn('检查更新');
+      if (!r || !r.ok) {
+        const msg = (r && r.error) || '检查失败';
+        updLine('检查失败：' + msg + '（网络不通或仓库还没发过 Release）', 'bad');
+        return;
+      }
+      UPD.info = r;
+      const cur = (r.current && r.current.versionName) || UPD.currentVersion();
+      const latest = r.tag || '';
+      if (cmpVer(latest, cur) > 0) {
+        UPD.phase = 'ready';
+        const size = r.asset ? fmtMB(r.asset.size) : '';
+        updLine('发现新版本 ' + String(latest).replace(/^android-v/i, 'v') + '（当前 ' + cur + (size ? '，安装包 ' + size : '') + '）', 'good');
+        updBtn('下载并安装');
+      } else {
+        UPD.phase = 'latest';
+        updLine('已是最新版本（' + cur + '，GitHub 上最新是 ' + String(latest).replace(/^android-v/i, 'v') + '）', 'good');
+      }
+    }).catch(function (e) {
+      UPD.busy = false;
+      updBtn('检查更新');
+      updLine('检查失败：' + String(e && e.message || e), 'bad');
+    });
+  }
+
+  /** 点第二下：下载 + 校验 + 安装 */
+  function doDownloadAndInstall() {
+    if (UPD.busy) return;
+    const info = UPD.info;
+    if (!info || !info.asset) { updLine('没拿到安装包地址，重新检查一次', 'bad'); return; }
+    UPD.busy = true;
+    updBtn('下载中…');
+    updLine('开始下载…', 'warn');
+    updBar(0, true);
+    mb.downloadUpdate(info.asset.url, info.asset.name, info.asset.size, function (p) {
+      const pct = Number(p.percent) >= 0 ? Number(p.percent) : 0;
+      updBar(pct, true);
+      updLine('下载中 ' + pct + '%（' + fmtMB(p.bytes) + ' / ' + fmtMB(p.total) + '）', 'warn');
+    }).then(function (r) {
+      updBar(100, false);
+      if (!r || !r.ok) {
+        UPD.busy = false;
+        updBtn('重试下载');
+        updLine('下载失败：' + ((r && r.error) || '未知错误'), 'bad');
+        return;
+      }
+      UPD.apk = r;
+      UPD.path = r.path;
+      if (r.samePackage === false) {
+        UPD.busy = false;
+        updBtn('去网页下载');
+        updLine('这个包不是本应用的安装包（' + (r.apkPackage || '?') + '），没有安装', 'bad');
+        return;
+      }
+      if (r.sameSigner === false) {
+        // 同一个包名、不同签名：系统只会报"未安装"。先讲清楚，给出两条路。
+        UPD.busy = false;
+        UPD.phase = 'sigMismatch';
+        updBtn('去网页下载');
+        updLine('包装好了，但签名和当前版本不一致（来自 CI 构建的包），系统不会覆盖安装；'
+          + '可以「卸载重装」（配置会清空）或从网页手动下载', 'bad');
+        return;
+      }
+      UPD.busy = false;
+      installDownloaded();
+    }).catch(function (e) {
+      UPD.busy = false;
+      updBtn('重试下载');
+      updLine('下载失败：' + String(e && e.message || e), 'bad');
+    });
+  }
+
+  function installDownloaded() {
+    if (!UPD.path) return;
+    updBtn('安装中…');
+    updLine('交给系统安装器…', 'warn');
+    mb.installUpdate(UPD.path).then(function (r) {
+      UPD.busy = false;
+      if (!r || !r.ok) {
+        if (r && r.needPermission) {
+          updBtn('已下载 · 继续安装');
+          updLine('需要允许「安装未知应用」：已在设置页打开开关位置，打开后回来再点一次这个按钮', 'warn');
+          return;
+        }
+        updBtn('重试安装');
+        updLine('安装失败：' + ((r && r.error) || '未知错误'), 'bad');
+        return;
+      }
+      UPD.installed = true;
+      updBtn('重新检查');
+      updLine('已调起系统安装器，按提示完成安装即可（装完启动就是新版本）', 'good');
+    }).catch(function (e) {
+      UPD.busy = false;
+      updBtn('重试安装');
+      updLine('安装失败：' + String(e && e.message || e), 'bad');
+    });
+  }
+
+  function installUpdateCenter() {
+    const old = document.getElementById('btn-check-update');
+    if (!old || old.getAttribute('data-mb-upd') === '1') return;
+    // app.js 里那句"即将上线"的占位 handler 是匿名函数，摘不掉，
+    // 所以整颗按钮换成一个克隆（克隆节点不带任何 listener），再挂自己的。
+    const btn = old.cloneNode(true);
+    btn.setAttribute('data-mb-upd', '1');
+    btn.textContent = '检查更新';
+    old.parentNode.replaceChild(btn, old);
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (UPD.busy) return;
+      // 状态机：idle/检查完但没新版 → 重新检查；有新版 → 下载安装；签名冲突 → 去网页
+      if (UPD.phase === 'ready') { doDownloadAndInstall(); return; }
+      if (UPD.phase === 'sigMismatch') {
+        const url = (UPD.info && UPD.info.htmlUrl) || 'https://github.com/sunmanxu/MusicSMX-Android-HD/releases';
+        mb.openUpdatePage(url);
+        return;
+      }
+      if (UPD.path && !UPD.installed) { installDownloaded(); return; }
+      doCheckUpdate();
+    });
+    updLine('点「检查更新」去 GitHub 看有没有新版本', '');
   }
 
   if (document.readyState === 'loading') {

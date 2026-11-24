@@ -1376,6 +1376,101 @@ public class MusicBridgePlugin extends Plugin {
     @PluginMethod public void convertToMp3(PluginCall call) { call.resolve(set(jo(), "ok", false, "error", "安卓端暂不支持格式转换")); }
     @PluginMethod public void convertFormat(PluginCall call) { call.resolve(set(jo(), "ok", false, "error", "安卓端暂不支持格式转换")); }
 
+    // ==================== 应用内更新（1.0.21） ====================
+    // 逻辑都在 Updater 里；这里只负责线程、进度事件和把结果翻译成 JS 对象。
+    // 事件：updateProgress { phase:'downloading', percent, bytes, total } → 渲染层画进度
+
+    @PluginMethod
+    public void updateCheck(PluginCall call) {
+        Thread t = new Thread(() -> {
+            try {
+                call.resolve(new JSObject(Updater.checkLatest(getContext()).toString()));
+            } catch (Exception e) {
+                Log.w(TAG, "updateCheck failed", e);
+                call.resolve(set(jo(), "ok", false, "error", String.valueOf(e.getMessage())));
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+    }
+
+    @PluginMethod
+    public void updateDownload(PluginCall call) {
+        final String url = call.getString("url", "");
+        final String name = call.getString("fileName", "");
+        final Long sizeArg = call.getLong("size", 0L);
+        Thread t = new Thread(() -> {
+            try {
+                int[] lastPct = { -1 };
+                JSObject res = new JSObject(Updater.download(getContext(), url, name,
+                    sizeArg == null ? 0L : sizeArg, (bytes, total) -> {
+                        int pct = total > 0 ? (int) (bytes * 100 / total) : -1;
+                        // 每 2% 推一次，别把桥打满
+                        if (pct >= 0 && (pct < lastPct[0] + 2) && pct != 100) return;
+                        lastPct[0] = pct;
+                        JSObject ev = jo();
+                        ev.put("phase", "downloading");
+                        ev.put("bytes", bytes);
+                        ev.put("total", total);
+                        ev.put("percent", pct);
+                        emit("__updateProgress", ev);
+                    }).toString());
+                call.resolve(res);
+            } catch (Exception e) {
+                Log.w(TAG, "updateDownload failed", e);
+                call.resolve(set(jo(), "ok", false, "error", String.valueOf(e.getMessage())));
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+    }
+
+    @PluginMethod
+    public void updateInstall(PluginCall call) {
+        String path = call.getString("path", "");
+        try {
+            File f = new File(path == null ? "" : path);
+            if (!f.exists()) {
+                call.resolve(set(jo(), "ok", false, "error", "安装包不存在，请重新下载"));
+                return;
+            }
+            if (Updater.needInstallPermission(getContext())) {
+                Updater.openInstallPermissionSettings(getContext());
+                JSObject np = jo();
+                np.put("ok", false);
+                np.put("needPermission", true);
+                np.put("error", "需要允许本应用安装未知来源应用");
+                call.resolve(np);
+                return;
+            }
+            Updater.launchInstaller(getContext(), f);
+            call.resolve(set(jo(), "ok", true, "launched", true));
+        } catch (Exception e) {
+            Log.w(TAG, "updateInstall failed", e);
+            call.resolve(set(jo(), "ok", false, "error", String.valueOf(e.getMessage())));
+        }
+    }
+
+    /** 签名冲突时的两条退路：去卸载页 / 去 Release 网页手动下 */
+    @PluginMethod
+    public void updateOpenUninstall(PluginCall call) {
+        Updater.openUninstall(getContext());
+        call.resolve(set(jo(), "ok", true));
+    }
+
+    @PluginMethod
+    public void updateOpenPage(PluginCall call) {
+        String url = call.getString("url", "");
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve(set(jo(), "ok", true));
+        } catch (Exception e) {
+            call.resolve(set(jo(), "ok", false, "error", String.valueOf(e.getMessage())));
+        }
+    }
+
     // ==================== 诊断 ====================
 
     @PluginMethod

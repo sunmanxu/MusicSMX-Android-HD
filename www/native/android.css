@@ -1193,3 +1193,47 @@ textarea {
   width: 100%; height: 100%; display: block; object-fit: cover;
   border-radius: inherit;
 }
+
+/* §31 1.0.21：设置里的「检查更新」状态行 + 下载进度条
+   状态色只用文字/边框/淡底，不铺满块，跟设置面板其它行保持同一种重量。 */
+.mb-update-box { margin: 10px 0 2px; }
+.mb-update-line {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  word-break: break-word;
+}
+.mb-update-line[data-kind="good"] {
+  color: #6ee7a8;
+  border-color: rgba(110, 231, 168, 0.28);
+  background: rgba(110, 231, 168, 0.08);
+}
+.mb-update-line[data-kind="warn"] {
+  color: #ffd479;
+  border-color: rgba(255, 212, 121, 0.26);
+  background: rgba(255, 212, 121, 0.07);
+}
+.mb-update-line[data-kind="bad"] {
+  color: #ff8b8b;
+  border-color: rgba(255, 139, 139, 0.3);
+  background: rgba(255, 139, 139, 0.08);
+}
+.mb-update-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+  margin-top: 6px;
+}
+.mb-update-bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s linear;
+}

@@ -15,7 +15,16 @@ Electron 外壳整体重写成 Android 原生桥。策略与验收标准见桌�
 - APK **不进版本库**（`.gitignore` 里 `*.apk`），成品统一挂 Release；
 - 首个 Release：`android-v1.0.20` → <https://github.com/sunmanxu/MusicSMX-Android-HD/releases/tag/android-v1.0.20>
   （资产 `MusicSMX-1.0.20-debug.apk`，约 4.8 MB，CI 构建、versionCode 21 / versionName 1.0.20）；
-- CI：`.github/workflows/android-release.yml` —— **只有推 `android-v*` tag 时才构建 + 发布**，普通 `git push` 不打包、不发版；
+- **CI 只编译，不发布**（1.0.21 起）：runner 的 debug 签名每次临时生成，和真机上的签名不同，覆盖安装会失败，
+  应用内更新也就没法用。所以 Release 里的 APK 一律由本机签名后上传：
+
+  ```powershell
+  cd android; .\gradlew.bat assembleDebug; cd ..
+  Copy-Item android\app\build\outputs\apk\debug\app-debug.apk MusicSMX-<版本>-debug.apk
+  pwsh -File scripts\publish-release.ps1          # 建/复用 android-v<版本> Release 并上传本机 APK
+  ```
+
+  `publish-release.ps1` 的 token 直接问 git 凭据管理器，不落文件。CI 的产物只留 workflow artifact，供编译验证留痕。
 - 重跑 CI 的姿势：删远端 tag 再 force 重推
 
   ```powershell
@@ -969,3 +978,42 @@ Capacitor 的插件方法是排队执行的 → 所有网络请求实际是**串
   重装重启后仍在（磁盘缩略图已落盘）。
 
 `MusicSMX-1.0.20-debug.apk`；截图 `test/u7-1.0.20-列表.png`、`test/u6-icon-zoom.jpg`
+
+---
+
+## 1.0.21（2026-11-25）
+
+用户需求：设置里的「检查更新」别只弹"即将上线"，要能真的去 GitHub 看有没有新版本，然后下载、安装。
+
+**做了什么**
+
+- 设置面板底部那颗「检查更新」变成一套完整流程（`www/native/bridge.js` 里新增 `updateCenter`，`app.js` 一行没动）：
+  1. 点一下 → 查 `api.github.com/repos/sunmanxu/MusicSMX-Android-HD/releases/latest`，按语义化版本号比较，
+     状态行显示「发现新版本 vX.Y.Z（当前 …，安装包 4.8 MB）」或「已是最新版本」；
+  2. 有新版时按钮自己变成「下载并安装」，下载时 4px 进度条 + 「下载中 42%（2.1 / 4.8 MB）」；
+  3. 下载完先验「是不是本应用 / 签名是否一致」，都过了才交给系统安装器；不一致就明说，不进安装器白挨一句"未安装"；
+  4. 没开「安装未知应用」时自动跳系统开关页，回来后按钮仍停在「继续安装」，点一下直接装。
+- 原生侧新增 `Updater`（`android/.../Updater.java`）+ 插件方法 `updateCheck` / `updateDownload` / `updateInstall` /
+  `updateOpenUninstall` / `updateOpenPage`；下载流式写到 `cache/updates/`，每 2% 通过 `__updateProgress` 事件推给网页；
+  安装用已有的 FileProvider（`<包名>.fileprovider`，`file_paths.xml` 的 `cache-path "."` 已覆盖），只多一条 `REQUEST_INSTALL_PACKAGES` 权限。
+- 版本号三处同步：`build.gradle` 22 / 1.0.21、设置里 chip「安卓HD 1.0.21」、`bridge.js` 的 `version: '1.0.21-android'`。
+
+**发布口径随之改了（重要）**
+
+- 之前 CI 推 tag 就自动发 Release，但 runner 的 debug 签名是**每次临时生成**的，和真机上装的本机签名不同 →
+  应用内更新下下来的包装不上去。所以 1.0.21 起 **CI 只编译验证、只留 workflow artifact**，
+  Release 的 APK 一律由本机签名后上传：`pwsh -File scripts\publish-release.ps1`。
+- 1.0.20 那个 CI 资产同理：真机上点更新会命中「签名不一致」分支，属正常提示（要么卸载重装、要么走网页）。
+
+**实测记录**
+
+- `checkUpdate` 走真机 CDP：`{"tag":"android-v1.0.20","assets":[["MusicSMX-1.0.20-debug.apk",4999988]]}`，`api.github.com` 2~3.5s 返回；
+  资产下载 302 到 `release-assets.githubusercontent.com`，Range 请求 206 正常 —— 下载链路通。
+- UI：点按钮 → 状态行立刻变"正在查…"，失败时正确落到红字提示，按钮回「检查更新」，不会卡在「检查中…」。
+- 安装：把 APK 塞进 `cache/updates/` 直接调 `mb.installUpdate` → `{"ok":true,"launched":true}`，系统安装器正常调起。
+- 顺带发现一个**系统层坑**：重装后 MIUI 的「联网控制」把本应用的网络全拦了
+  （`run-as cn.sunmanxu.musicsmx ping 20.205.243.168` → `sendmsg: Operation not permitted`，DNS 也解析不了），
+  表现就是状态行红字「Unable to resolve host "api.github.com"」。这不是代码问题，要在
+  手机管家 → 网络助手 → 联网控制 里把 MusicSMX 的 WLAN/数据打开。
+
+`MusicSMX-1.0.21-debug.apk`（5,011,856 B）
