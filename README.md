@@ -21,8 +21,16 @@ Electron 外壳整体重写成 Android 原生桥。策略与验收标准见桌�
   git push origin android-v1.0.21
   ```
 
-- 渲染层同步（从桌面版拉 `app.js` / `style.css`，默认只体检不写盘）：
+- 首次推送（GitHub 上还没建这个仓库时）：
 
+  ```powershell
+  # 先在网页新建同名空仓库 MusicSMX-Android-HD，不要勾 README / .gitignore（避免首次推送冲突）
+  git push -u origin main
+  ```
+
+  本机 git 在 `C:\Program Files\Git\cmd`，凭据走 Git Credential Manager，首次 push 会弹浏览器登录 GitHub。
+
+- 渲染层同步（从桌面版拉 `app.js` / `style.css`，默认只体检不写盘）：
   ```powershell
   pwsh -File scripts\sync-www.ps1            # 只看差异
   pwsh -File scripts\sync-www.ps1 -Apply     # 真覆盖（自动备份旧文件）
