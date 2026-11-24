@@ -32,6 +32,11 @@ jobs:
       - name: 准备 Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: 安装 SDK 平台并接受许可
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
       - name: 安装依赖并同步渲染层
         run: |
           npm ci
