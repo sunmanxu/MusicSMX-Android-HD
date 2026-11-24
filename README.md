@@ -13,7 +13,24 @@ Electron 外壳整体重写成 Android 原生桥。策略与验收标准见桌�
 - **独立仓库**，不和桌面版 `sunmanxu/MusicSMX` 混用：桌面版 tag 是 `v*`（且 `release.yml` 见 `v*` 就打桌面包），
   安卓版走 `android-v*`；两套构建工具链（Electron vs Gradle）和产物（exe vs APK）也完全不同。
 - APK **不进版本库**（`.gitignore` 里 `*.apk`），成品统一挂 Release；
+- 首个 Release：`android-v1.0.20` → <https://github.com/sunmanxu/MusicSMX-Android-HD/releases/tag/android-v1.0.20>
+  （资产 `MusicSMX-1.0.20-debug.apk`，约 4.8 MB，CI 构建、versionCode 21 / versionName 1.0.20）；
 - CI：`.github/workflows/android-release.yml` —— **只有推 `android-v*` tag 时才构建 + 发布**，普通 `git push` 不打包、不发版；
+- 重跑 CI 的姿势：删远端 tag 再 force 重推
+
+  ```powershell
+  git push origin :refs/tags/android-v1.0.20
+  git tag -f android-v1.0.20
+  git push origin android-v1.0.20
+  ```
+
+- CI 踩过的三个坑（都已修好，改 workflow 时别退回去）：
+  1. `android-actions/setup-android@v3` 在这台 runner 上装不起来 → 改成用镜像自带 `ANDROID_SDK_ROOT`，
+     预写 `licenses/android-sdk-license`、`android-sdk-preview-license`，有 `cmdline-tools/latest/bin/sdkmanager` 才补装
+     `platform-tools` / `platforms;android-36` / `build-tools;36.0.0`，没有就交给 AGP 自己下；
+  2. **Node 必须是 22**：`@capacitor/cli` 的 `engines` 是 `>=22.0.0`，用 Node 20 会在 `npx cap sync android` 阶段直接失败；
+  3. Job 日志接口对未登录请求返回 403，查失败只能看 `/actions/runs/{id}/jobs` 的 step 级结论 ——
+     所以失败先按"哪一步"猜，别指望拉日志正文。
 - 发布一条命令：
 
   ```powershell
