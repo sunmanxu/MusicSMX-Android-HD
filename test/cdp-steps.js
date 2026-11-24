@@ -1,0 +1,82 @@
+// 按钮自检步骤表：每一步「点一下 → 看状态有没有按预期变」
+'use strict';
+
+const SNAP = `JSON.stringify({
+  sortMenu: !document.getElementById('sort-menu').hidden,
+  themePop: !document.getElementById('theme-popover').hidden,
+  settings: !document.getElementById('settings-modal').hidden,
+  batchMenu: !document.getElementById('batch-menu').hidden,
+  lyricMenu: !document.getElementById('desktop-lyric-menu').hidden,
+  pfOpen: !!pf.open,
+  playing: !!S.playing,
+  paused: document.getElementById('audio').paused,
+  current: S.current,
+  mode: S.mode,
+  lyricMode: S.settings.desktopLyric,
+  wordLyrics: !!S.settings.wordLyrics,
+  lyricsMode: S.lyricsMode,
+  favSize: S.favorites.size,
+  keyword: S.keyword,
+  sortKey: S.sortKey + '/' + S.sortDir,
+  trackCount: S.view.length,
+  queueOpen: !document.getElementById('queue-panel').hidden,
+  lyricPanelOpen: !document.getElementById('lyrics-panel').hidden,
+  eqOpen: !!(document.getElementById('eq-modal') && !document.getElementById('eq-modal').hidden),
+  fsVal: document.querySelector('[data-fs-val]') ? document.querySelector('[data-fs-val]').textContent : null,
+  loVal: document.querySelector('[data-lo-val]') ? document.querySelector('[data-lo-val]').textContent : null,
+  spacingSingle: document.getElementById('pf-spacing-single-val').textContent,
+  curTime: document.getElementById('cur-time').textContent,
+  toast: !document.getElementById('toast').hidden ? document.getElementById('toast').textContent : ''
+})`;
+
+function step(name, click, verify, wait, undo, undoWait) {
+  return { name, click, probeBefore: SNAP, probeAfter: SNAP, wait: wait || 700, verify, undo, undoWait: undoWait || 300 };
+}
+const obj = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+
+module.exports = [
+  step('排序按钮 → 排序菜单弹出', "document.getElementById('btn-sort').click()", (a, b) => obj(b).sortMenu === true),
+  step('排序菜单 → 选“名称 A→Z”', "document.querySelector('#sort-menu .sort-item[data-sort=\"title\"][data-dir=\"1\"]').click()",
+    (a, b) => { a = obj(a); b = obj(b); return b.sortKey === 'title/1'; }),
+  step('工具按钮 → 工具菜单弹出', "document.getElementById('btn-batch').click()", (a, b) => obj(b).batchMenu === true),
+  step('工具按钮 → 再点收起', "document.getElementById('btn-batch').click()", (a, b) => obj(b).batchMenu === false),
+  step('个性化按钮 → 主题浮层弹出', "document.getElementById('btn-theme').click()", (a, b) => obj(b).themePop === true),
+  step('个性化按钮 → 再点收起', "document.getElementById('btn-theme').click()", (a, b) => obj(b).themePop === false),
+  step('设置按钮 → 设置面板弹出', "document.getElementById('btn-settings').click()", (a, b) => obj(b).settings === true),
+  step('设置面板 → 关闭', "document.querySelector('#settings-modal .modal-close').click()", (a, b) => obj(b).settings === false),
+  step('搜索框输入“月亮” → 列表收窄',
+    "(()=>{const i=document.getElementById('search');i.value='月亮';i.dispatchEvent(new Event('input',{bubbles:true}));return 1})()",
+    (a, b) => { a = obj(a); b = obj(b); return b.keyword === '月亮' && b.trackCount < a.trackCount; }),
+  step('搜索清空 → 列表恢复',
+    "(()=>{const i=document.getElementById('search');i.value='';i.dispatchEvent(new Event('input',{bubbles:true}));return 1})()",
+    (a, b) => { a = obj(a); b = obj(b); return b.trackCount === a.trackCount; }),
+  step('播放键 → 开始播放', "document.getElementById('btn-play').click()",
+    (a, b) => { a = obj(a); b = obj(b); return b.playing === true; }),
+  step('播放键 → 暂停', "document.getElementById('btn-play').click()", (a, b) => obj(b).playing === false),
+  step('下一首', "document.getElementById('btn-next').click()", (a, b) => obj(b).current !== obj(a).current),
+  step('上一首', "document.getElementById('btn-prev').click()", (a, b) => obj(b).current !== obj(a).current),
+  step('循环模式切换', "document.getElementById('btn-mode').click()", (a, b) => obj(b).mode !== obj(a).mode),
+  step('循环模式切回列表', "(()=>{let i=0;while(S.mode!=='list'&&i++<4)document.getElementById('btn-mode').click();return S.mode})()", null),
+  step('收藏按钮 → 加入收藏', "document.getElementById('btn-fav').click()", (a, b) => obj(b).favSize === obj(a).favSize + 1),
+  step('收藏按钮 → 取消收藏', "document.getElementById('btn-fav').click()", (a, b) => obj(b).favSize === obj(a).favSize),
+  step('播放列表抽屉 → 打开', "document.getElementById('btn-queue').click()", (a, b) => obj(b).queueOpen === true),
+  step('播放列表抽屉 → 关闭', "document.getElementById('btn-queue').click()", (a, b) => obj(b).queueOpen === false),
+  step('歌词面板 → 打开', "document.getElementById('btn-lyrics').click()", (a, b) => obj(b).lyricPanelOpen === true),
+  step('歌词面板 → 关闭', "document.getElementById('btn-lyrics').click()", (a, b) => obj(b).lyricPanelOpen === false),
+  step('均衡器 → 打开', "document.getElementById('btn-eq').click()", (a, b) => obj(b).eqOpen === true, 900),
+  step('均衡器 → 关闭', "(()=>{const c=document.querySelector('#eq-modal .modal-close, #eq-modal [data-close]');if(c)c.click();return c?1:0})()", (a, b) => obj(b).eqOpen === false, 900),
+  step('封面 → 打开全屏播放页', "document.getElementById('btn-cover-mini').click()", (a, b) => obj(b).pfOpen === true, 900),
+  step('播放页 翻译 按钮', "document.querySelector('.pf-lyrics-mode[data-mode=\"trans\"]').click()",
+    (a, b) => obj(b).lyricsMode !== obj(a).lyricsMode),
+  step('播放页 原文 按钮', "document.querySelector('.pf-lyrics-mode[data-mode=\"orig\"]').click()",
+    (a, b) => obj(b).lyricsMode !== obj(a).lyricsMode),
+  step('播放页 逐字 按钮', "document.getElementById('pf-word-toggle').click()",
+    (a, b) => obj(b).wordLyrics !== obj(a).wordLyrics),
+  step('播放页 A+ 字号', "document.querySelector('[data-fs=\"1\"]').click()", (a, b) => obj(b).fsVal !== obj(a).fsVal),
+  step('播放页 A− 字号', "document.querySelector('[data-fs=\"-1\"]').click()", (a, b) => obj(b).fsVal !== obj(a).fsVal),
+  step('播放页 歌词提前 +', "document.querySelector('[data-lo=\"1\"]').click()", (a, b) => obj(b).loVal !== obj(a).loVal),
+  step('播放页 歌词延后 −', "document.querySelector('[data-lo=\"-1\"]').click()", (a, b) => obj(b).loVal !== obj(a).loVal),
+  step('播放页 行距滑块', "(()=>{const i=document.getElementById('pf-spacing-single');i.value='1.6';i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));return 1})()",
+    (a, b) => obj(b).spacingSingle !== obj(a).spacingSingle),
+  step('播放页 返回', "document.getElementById('pf-close').click()", (a, b) => obj(b).pfOpen === false)
+];

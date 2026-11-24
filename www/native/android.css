@@ -1,0 +1,1195 @@
+/* ============================================================
+   MusicSMX 安卓补充样式 —— 只做「手机可用」的最小适配，
+   不改桌面版 style.css 里任何布局骨架（双端共用一份渲染层，方便日后同步）。
+   ============================================================ */
+
+/* 0) 底色兜底：海报模式会给 body 的 --bg 留透明度（默认 12%），
+   没有海报垫底时 WebView 的白底就会透出来，整页变灰白。
+   edge-to-edge 之后状态栏那一条露的就是 html 的底色 —— 所以这里用渲染层算出来的
+   主题色（--mb-chrome-bg，由 bridge.js 每次同步状态栏配色时写入），和顶栏严丝合缝；
+   海报模式下 #poster-bg 是 fixed+z-index:-1，会盖在这层实底上照样透出来。 */
+html {
+  background-color: var(--mb-chrome-bg, #12141a) !important;
+}
+
+/* 1) 桌面专属的窗口控件：安卓没有窗体，全部隐藏 */
+.window-controls,
+.win-ctrl,
+#win-min,
+#win-max,
+#win-close {
+  display: none !important;
+}
+
+/* 2) 系统栏留白：WebView 已经铺到状态栏底下（edge-to-edge），这里由网页自己让出来。
+   优先用原生推上来的真实 insets（--mb-top/right/bottom/left），没有就退回 env()。 */
+#app {
+  box-sizing: border-box;
+  height: 100vh;
+  height: 100dvh;
+  padding-top: calc(var(--mb-top, env(safe-area-inset-top, 0px)) + var(--mb-extra-top, 0px));
+  padding-right: var(--mb-right, env(safe-area-inset-right, 0px));
+  padding-bottom: var(--mb-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--mb-left, env(safe-area-inset-left, 0px));
+}
+
+/* 全屏播放页是 position:fixed inset:0，不吃 #app 的 padding：它自己让位。
+   .pf-bg 是 inset:-40px 的绝对层，会连同状态栏那一条一起铺满，所以顶上是海报渐变
+   而不是一条纯色深灰 —— 这就是「真融合」。 */
+.player-full {
+  box-sizing: border-box;
+  padding-top: calc(var(--mb-top, env(safe-area-inset-top, 0px)) + var(--mb-extra-top, 0px));
+  padding-right: var(--mb-right, env(safe-area-inset-right, 0px));
+  padding-bottom: var(--mb-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--mb-left, env(safe-area-inset-left, 0px));
+}
+
+/* 3) 触屏手感：禁掉长按弹菜单、双击缩放、文本选中，滚动条换成触屏惯性 */
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* 4) 窄屏（竖屏手机）：压缩顶栏和侧栏，把曲库让出来 */
+@media (max-width: 560px) {
+  #topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+  #topbar .logo span {
+    display: none; /* 只留图标，把横向空间给搜索框 */
+  }
+  #sort-label {
+    display: none;
+  }
+  #sidebar {
+    min-width: 118px;
+    max-width: 118px;
+  }
+  #sidebar .folder-name {
+    font-size: 12px;
+  }
+  .player-bar,
+  #player-bar {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  /* 列表行加高，手指点得准 */
+  .track-row {
+    min-height: 46px;
+  }
+  /* 底部播放栏是浮在列表上的（桌面版同款设计，列表从它下面滚过去），不要给列表加 padding，
+     否则会打乱渲染层的可见行窗口，末尾会空出一大块 */
+  /* 空状态说明文字在窄屏要能换行，别被切掉 */
+  #empty-state .empty-main {
+    font-size: 20px;
+  }
+  #empty-state .empty-dim {
+    max-width: 84%;
+    margin: 0 auto;
+    line-height: 1.55;
+    font-size: 13px;
+  }
+}
+
+/* 5) 横屏 / 平板：只加大密度，不要再去掉 insets（状态栏那一刀必须还在） */
+@media (min-width: 900px) {
+  #app {
+    padding-top: calc(var(--mb-top, env(safe-area-inset-top, 0px)) + var(--mb-extra-top, 0px));
+  }
+}
+
+/* 6) 全屏沉浸（安卓上没有 titlebar 拖拽区，去掉 -webkit-app-region 相关影响） */
+#topbar {
+  -webkit-app-region: none;
+}
+
+/* 7) 保存到相册/分享等原生菜单不存在，避免误触发的空态 */
+.audio-device-menu {
+  display: none !important;
+}
+
+/* 8) 播放详情页（专辑封面那页）：不要在触屏上做「静止 3.2 秒淡出操作层」的沉浸效果。
+     桌面版靠 mousemove 唤醒，手机上手一停就找不到按钮，用户要求常显。
+     同时把歌词工具栏（原文/翻译/音译）从「悬停才出现」改成常显。 */
+#player-full.idle .pf-top,
+#player-full.idle .pf-bottom,
+#player-full.idle .pf-spacing-panel,
+#player-full.idle .pf-lyrics-toolbar {
+  opacity: 1 !important;
+  transform: none !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+#player-full.idle {
+  cursor: auto;
+}
+.pf-lyrics-wrap .pf-lyrics-toolbar,
+.pf-lyrics-wrap .pf-lyrics-toolbar:hover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* 9) 手机竖屏（≤700px）：桌面版这条规则会把全屏封面整块 display:none 掉
+   （那是给「窗口被拖到极窄」兜底的），可在手机上这就是常态，等于永远看不到专辑封面，
+   联网补齐了封面也白补。改成「封面在上、歌词在下」的竖排。 */
+@media (max-width: 700px) {
+  .pf-body {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px 0;
+  }
+  .pf-cover-wrap {
+    display: block;
+  }
+  .pf-cover-col {
+    --pf-cover-size: min(150px, 21vh);
+    max-width: 100%;
+    flex-direction: column;
+    align-items: center;
+  }
+  .pf-metadata,
+  .pf-meta {
+    margin-top: 8px;
+    align-items: center;
+    text-align: center;
+  }
+  /* 工具栏原本是 translateY(-100%) 浮在歌词框上方的——桌面版只在悬停时露脸，浮着无所谓；
+     手机上让它常显就会压住头两行歌词，所以改成占位排版，单独占一行。 */
+  .pf-lyrics-toolbar {
+    position: static;
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    flex-shrink: 0;
+    padding: 8px 0 6px;
+    gap: 10px;
+  }
+  .pf-lyrics-wrap {
+    width: 100%;
+    max-width: 100%;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 页脚右侧的 .vol 组在 ≤760px 被原版整组隐藏了，连带把「词」（顶部歌词）入口
+     一起藏掉——手机用户根本没地方打开顶部歌词。这里只把「词」放回来。 */
+  .vol {
+    display: flex;
+  }
+  .vol #btn-mute,
+  .vol #volume,
+  .vol #btn-lyrics {
+    display: none;
+  }
+
+  /* 顶栏：手机上原版会把「词（顶部歌词）」「设置」推出屏幕外面，等于点了也点不到。
+     收窄间距、排序只留图标、搜索框可缩，把全部入口留在屏内。 */
+  #topbar {
+    gap: 6px;
+    padding: 0 6px;
+  }
+  #sort-label {
+    display: none;
+  }
+  #topbar .search-wrap {
+    min-width: 0;
+    max-width: none;
+  }
+  #topbar input {
+    min-width: 0;
+  }
+  #topbar .ctl {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+  }
+  #topbar .ctl.ctl-text {
+    width: 30px;
+    padding: 0;
+  }
+}
+
+
+/* 10) 触屏控件尺寸：桌面版给鼠标设计的 32px 按钮 + 14/16px 图标，
+   手指在平板上既看不清也点不准。这里统一放大「可点区 + 图标本体」，
+   用 CSS 变量控，横屏平板再放大一档。
+   .btns::before 是原版用来保持播放键几何居中的等宽占位，跟着 .ctl 一起改，居中不歪。 */
+:root {
+  --touch-ctl: 42px;        /* 普通圆形按钮可点区 */
+  --touch-icon: 22px;       /* 普通按钮里的图标 */
+  --touch-big: 50px;        /* 播放键 */
+  --touch-big-icon: 26px;   /* 播放键图标 */
+}
+.ctl {
+  width: var(--touch-ctl);
+  height: var(--touch-ctl);
+}
+.ctl svg {
+  width: var(--touch-icon) !important;
+  height: var(--touch-icon) !important;
+}
+.ctl.ctl-text {
+  padding: 0 14px;
+  font-size: 13px;
+}
+.ctl-glyph {
+  font-size: 15px;
+}
+.ctl.big {
+  width: var(--touch-big);
+  height: var(--touch-big);
+}
+.ctl.big svg {
+  width: var(--touch-big-icon) !important;
+  height: var(--touch-big-icon) !important;
+}
+.btns::before {
+  width: var(--touch-ctl);
+  height: var(--touch-ctl);
+}
+/* 列表行的序号/操作图标也放大一点，别让行里的小图标成为误触源 */
+.track-row .t-op svg,
+.track-row .row-fav svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 底栏高度要跟着按钮一起长：原版 #app 的 grid 模板是「52px 1fr 72px」，
+   最后一行写死 72px，底栏加高后会溢出到视口外面（进度条被手势条压住）。
+   这里把末行改成 auto，让底栏自己撑开、中间列表用 minmax(0,1fr) 让位。 */
+#app {
+  grid-template-rows: 52px minmax(0, 1fr) auto;
+}
+#player {
+  height: 88px;
+}
+.seekbar {
+  margin-top: 2px;
+}
+
+/* 11) 进度条：桌面版是 3px 轨道 + 只有 hover 才露出的 10px 拖动点，
+   触屏永远没有 hover，等于「看不见的拖动点、摸不到的热区」。
+   注意：只把「轨道视觉」和「命中区」做厚，行高保持 14px 不动，
+   否则底栏整体被撑高、进度条会被手势条压住（横屏实测过）。 */
+.seek {
+  height: 14px;
+  touch-action: none;
+}
+/* 上下各外扩 8px 的透明命中区：手指按在轨道附近也能抓住，视觉上不占高度 */
+.seek::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -8px;
+  bottom: -8px;
+}
+.seek::before {
+  height: 5px;
+  border-radius: 3px;
+}
+#seek-fill {
+  height: 5px;
+  border-radius: 3px;
+}
+#seek-knob {
+  opacity: 1;
+  width: 14px;
+  height: 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+}
+.seek:hover::before,
+.seek:hover #seek-fill {
+  height: 5px;
+}
+#volume {
+  height: 5px;
+  border-radius: 3px;
+  touch-action: none;
+}
+#volume::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+}
+/* 播放页的进度条同理（.pf-seek 那套） */
+#pf-seek {
+  touch-action: none;
+}
+
+/* 12) 主列表自绘滚动条：原版 9px 宽，手指按上去基本抓不住。
+   加宽到 18px（滑块视觉 12px），并给接触区关掉原生滚动抢占，
+   拖起来才跟手。app.js 里 left 是内联写死的，这里用 right 定位改掉它。 */
+#track-scrollbar {
+  width: 18px !important;
+  left: auto !important;
+  right: 0 !important;
+  touch-action: none;
+}
+#track-scrollbar .tsb-thumb {
+  left: 3px;
+  right: 3px;
+  border-radius: 8px;
+  min-height: 44px;
+  background: color-mix(in srgb, var(--text-faint) 32%, transparent);
+}
+#track-scrollbar:hover .tsb-thumb,
+#track-scrollbar.dragging .tsb-thumb {
+  background: color-mix(in srgb, var(--text-faint) 62%, transparent);
+}
+
+/* 13) 平板/大屏横屏：再放大一档，触屏手臂距离远，需要更大的靶子 */
+@media (min-width: 900px) {
+  :root {
+    --touch-ctl: 48px;
+    --touch-icon: 26px;
+    --touch-big: 60px;
+    --touch-big-icon: 30px;
+  }
+  #topbar .ctl.ctl-text {
+    padding: 0 16px;
+    font-size: 14px;
+  }
+  .track-row {
+    min-height: 48px;
+  }
+  .track-row .t-op svg,
+  .track-row .row-fav svg {
+    width: 20px;
+    height: 20px;
+  }
+  #track-scrollbar {
+    width: 22px !important;
+  }
+  #track-scrollbar .tsb-thumb {
+    left: 4px;
+    right: 4px;
+  }
+  #player {
+    height: 100px;
+  }
+}
+
+/* ============================================================
+   1.0.4：触屏细节修正（按钮图标偏小、工具栏抽搐、音量条太短、
+   歌词调节面板、外链确认、底栏收藏键）
+   ============================================================ */
+
+/* 14) 播放页按钮：.pf-ctl 的可点区是 clamp(42~62px)，但图标本体在 HTML 里写死 17~26px，
+   平板上看着还是小。这里统一放大图标本体，圆形可点区不动（不会挤爆布局）。 */
+.pf-ctl svg {
+  width: 24px !important;
+  height: 24px !important;
+}
+.pf-ctl.pf-play svg {
+  width: 28px !important;
+  height: 28px !important;
+}
+@media (min-width: 900px) {
+  .pf-ctl svg {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  .pf-ctl.pf-play svg {
+    width: 34px !important;
+    height: 34px !important;
+  }
+}
+
+/* 15) 右下角：全屏键去掉，音量拖条加长（触屏上短滑条根本微调不了音量） */
+#pf-fs {
+  display: none !important;
+}
+
+/* 15b) 右侧那根竖着的调节轨在手机上会压住歌词和进度条（"单/±/A±"挤在右边缘）。
+   它的功能已经搬到 EQ 按钮弹出的「歌词调节」面板里，这里只在播放页里藏掉，
+   面板一旦被搬进 #mb-mix 就不在 #player-full 里了，所以面板里照样显示。 */
+#player-full .pf-spacing-panel {
+  display: none;
+}
+.pf-vol-wrap {
+  gap: 10px;
+}
+#pf-volume.pf-volume {
+  width: clamp(170px, 38vw, 340px) !important;
+  height: 6px;
+  touch-action: none;
+}
+#pf-volume.pf-volume::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+}
+
+/* 16) 歌词工具栏（原文/翻译/音译）：原版是 absolute + translateY(-100%) 悬在歌词框上方，
+   触屏常显后布局重算时偶尔会往下"抽搐"一下压住第一行歌词。
+   改成正常占位排版 + 固定高度 + 关掉过渡，位置就钉死了。 */
+.pf-lyrics-toolbar,
+.pf-lyrics-wrap .pf-lyrics-toolbar {
+  position: static !important;
+  transform: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transition: none !important;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 10px !important;
+  gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
+}
+.pf-lyrics-toolbar button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+@media (min-width: 900px) {
+  .pf-lyrics-toolbar {
+    height: 46px;
+    min-height: 46px;
+  }
+}
+
+/* 17) 歌词调节面板（EQ 按钮改开这个）：把渲染层真实的那根调节轨整根搬进卡片，
+   所以滑块拖动、数值记忆、每首歌单独的歌词延迟全都还是原版逻辑。 */
+#mb-mix {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+#mb-mix[hidden] {
+  display: none;
+}
+.mb-mix-card {
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+  background: var(--bg-elev, #1a1d26);
+  color: var(--text, #e8eaf0);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 14px 16px 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+.mb-mix-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.mb-mix-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+}
+#mb-mix-body .pf-spacing-panel {
+  position: static !important;
+  top: auto;
+  right: auto;
+  transform: none !important;
+  opacity: 1 !important;
+  flex-direction: column;
+  gap: 16px;
+  padding: 6px 0;
+}
+#mb-mix-body .pf-spacing-item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+#mb-mix-body .pf-spacing-label {
+  width: 34px;
+  font-size: 13px;
+  color: var(--text-dim, #9aa0ae);
+  flex-shrink: 0;
+}
+#mb-mix-body .pf-vslider {
+  writing-mode: horizontal-tb !important;
+  direction: ltr !important;
+  width: 100%;
+  height: 30px;
+  flex: 1;
+}
+#mb-mix-body .pf-spacing-val {
+  width: 46px;
+  text-align: right;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+#mb-mix-body .lyric-offset.vertical {
+  flex-direction: row;
+  gap: 10px;
+}
+.mb-mix-tip {
+  margin: 10px 2px 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.55;
+}
+
+/* 18) 跳浏览器前的确认弹窗 */
+#mb-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+.mb-confirm-card {
+  width: min(420px, 86vw);
+  background: var(--bg-elev2, #222634);
+  color: var(--text, #e8eaf0);
+  border-radius: 14px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+.mb-confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.mb-confirm-url {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+  opacity: 0.7;
+}
+.mb-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+.mb-btn {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+}
+.mb-btn.primary {
+  background: var(--accent, #4a9eff);
+  border-color: transparent;
+  color: #0b0d12;
+  font-weight: 600;
+}
+
+/* 19) 底栏收藏键（跟专辑页 #pf-fav 同一套爱心，实心=已收藏） */
+#mb-fav {
+  color: var(--text-dim, #9aa0ae);
+}
+#mb-fav.mb-fav-on {
+  color: #ff5d7a;
+}
+
+/* 20) 轻提示（没有 app.js 的 toast 时兜底） */#mb-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(110px + var(--mb-bottom, 0px));
+  transform: translateX(-50%);
+  max-width: 80vw;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  z-index: 1400;
+}
+#mb-toast.show {
+  opacity: 1;
+}
+
+/* 21) 播放页底部控制区在窄屏上必须换行。
+   原版是 grid 三列（左空列 / 中间 6 键 / 右侧 收藏+静音+音量+全屏），
+   手机上三列加起来超过屏宽，右侧那组就压到中间那组上面（1.0.2 起的老问题：
+   "静音+音量+全屏挤成一团"）。这里改成单列两行：
+   第一行 播放控制，第二行 收藏 / 音量（全屏键已去掉）。 */
+@media (max-width: 820px) {
+  .pf-controls {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  .pf-side.pf-side:not(.pf-side-right) {
+    display: none;            /* 左侧那列在手机上本来就是空的 */
+  }
+  .pf-center {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+  }
+  .pf-side-right {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: center;
+    padding-right: 0;
+  }
+}
+
+/* 22) 小米平板 6S Pro（3:2 横屏，CSS ≈ 1524×1016）—— 底部控制区不允许重叠
+   桌面版 .pf-controls 是 grid 三列：左 1fr 空列 / 中间播放组 / 右侧「收藏+静音+音量」。
+   平板宽度下右侧那组比 1fr 列还宽，被 justify-end 顶到中间组头上（用户截图里
+   心形、静音、音量条全叠在「上一首/下一首」上）。这里把右侧组改成贴右缘的绝对定位，
+   中间组继续用 grid 居中，两边几何上永远不相交；顺便把按钮和音量条调到平板尺寸。 */
+@media (min-width: 900px) {
+  .pf-controls { column-gap: clamp(10px, 1.2vw, 26px); }
+  .pf-center { gap: clamp(12px, 1.5vw, 30px); }
+  .pf-side-right {
+    position: absolute;
+    right: clamp(12px, 2vw, 44px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding-right: 0;
+    gap: clamp(8px, 1.1vw, 22px);
+  }
+  /* 注意：上面的 §15 用的是 #pf-volume.pf-volume（id+class）+ !important，
+     这里必须同样提权并带 !important 才压得住 */
+  #pf-volume.pf-volume { width: clamp(150px, 17vw, 300px) !important; }
+  /* 平板手指精度够，按钮可以大一号，别挤成小点（横屏按屏高、竖屏按更小的那档兜底） */
+  .pf-ctl { width: clamp(46px, 4vh, 64px); height: clamp(46px, 4vh, 64px); font-size: clamp(24px, 2.2vh, 30px); }
+  .pf-ctl.pf-play { width: clamp(58px, 5.4vh, 76px); height: clamp(58px, 5.4vh, 76px); font-size: clamp(26px, 2.6vh, 34px); }
+  .pf-bottom { padding-left: clamp(24px, 3vw, 56px); padding-right: clamp(24px, 3vw, 56px); }
+}
+
+
+/* 23) 1.0.6 去掉的入口
+   · 均衡器（底栏 btn-eq / 播放页 pf-eq）：功能整体砍掉，按钮一起藏；
+   · 桌面版歌词模式菜单（三档模式 + 字号/颜色/逐字）：安卓只需要"顶部悬浮歌词"一个开关，
+     「词」按钮现在直接切换它，菜单永不再弹。 */
+#btn-eq,
+#pf-eq {
+  display: none !important;
+}
+#desktop-lyric-menu {
+  display: none !important;
+}
+/* 「词」按钮开着（顶部悬浮歌词正在显示）时的强调色 */
+#btn-desktop-lyric.mb-top-on {
+  color: var(--accent, #ff6b3d);
+}
+
+/* 播放页中间组的隐形配重（去掉均衡器键后用它把「播放」重新摆回几何中心） */
+#mb-pf-spacer {
+  display: inline-block;
+  width: clamp(42px, 4vh, 64px);
+  height: 1px;
+  visibility: hidden;
+}
+
+/* 24) 平板竖屏（≈1016×1524）：横屏那套"右侧贴边绝对定位"在竖屏宽度不够，
+   会和居中的播放组压在一起；竖屏有纵向空间，改成两行：第一行播放控制、第二行收藏+音量。 */
+@media (min-width: 900px) and (orientation: portrait) {
+  .pf-controls {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 10px;
+  }
+  .pf-side.pf-side:not(.pf-side-right) { display: none; }
+  .pf-center { grid-column: 1; grid-row: 1; justify-self: center; }
+  .pf-side-right {
+    position: static;
+    transform: none;
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: center;
+    padding-right: 0;
+  }
+  #pf-volume.pf-volume { width: clamp(220px, 45vw, 420px) !important; }
+}
+
+/* 手机的窄屏两行布局里不需要这个配重（加了反而让播放键偏左 21px） */
+@media (max-width: 820px) {
+  #mb-pf-spacer { width: 0 !important; }
+}
+
+/* ============================================================
+   25) 1.0.9 UI 精修（用户：按钮"傻大粗"）
+   —— 思路：可点区还在（手指够得着），但"视觉重量"整体收一档：
+      图标小一点、圆点按钮小一点、滑轨统一 4px/12px 拇指、字体不再靠放大字重撑场。
+   ============================================================ */
+
+/* 25.1 尺寸档整体收一档（覆盖 §10 / §13） */
+:root {
+  --touch-ctl: 36px;
+  --touch-icon: 17px;
+  --touch-big: 44px;
+  --touch-big-icon: 20px;
+}
+@media (min-width: 900px) {
+  :root {
+    --touch-ctl: 40px;
+    --touch-icon: 19px;
+    --touch-big: 50px;
+    --touch-big-icon: 23px;
+  }
+  #topbar .ctl.ctl-text { padding: 0 12px; font-size: 13px; }
+  .track-row { min-height: 44px; }
+  .track-row .t-op svg,
+  .track-row .row-fav svg { width: 17px; height: 17px; }
+  #player { height: 94px; }
+}
+
+/* 25.2 底栏进度条 / 音量条：统一成"4px 轨道 + 12px 拇指"，
+   和播放页的那根保持一致。音量条只加长不压扁手感（命中区另有透明外扩）。 */
+.seek { height: 12px; }
+.seek::before,
+#seek-fill { height: 4px; border-radius: 2px; }
+#seek-knob { width: 12px; height: 12px; }
+#seek-knob { opacity: 1; }
+.seek:hover::before,
+.seek:hover #seek-fill { height: 4px; }
+
+#volume {
+  width: clamp(120px, 13vw, 190px);
+  height: 4px !important;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+}
+#volume::-webkit-slider-thumb { width: 12px; height: 12px; }
+
+/* 25.3 播放页按钮：比 §22 那套再小一号，播放键不再"顶天立地" */
+.pf-ctl svg { width: 20px !important; height: 20px !important; }
+.pf-ctl.pf-play svg { width: 24px !important; height: 24px !important; }
+@media (min-width: 900px) {
+  .pf-ctl {
+    width: clamp(38px, 3.6vh, 46px);
+    height: clamp(38px, 3.6vh, 46px);
+    font-size: clamp(20px, 1.8vh, 24px);
+  }
+  .pf-ctl.pf-play {
+    width: clamp(50px, 4.6vh, 58px);
+    height: clamp(50px, 4.6vh, 58px);
+    font-size: clamp(22px, 2.2vh, 28px);
+  }
+  #mb-pf-spacer { width: clamp(38px, 3.6vh, 46px); }
+}
+
+/* 25.4 播放页音量条：加长（横向空间够）、变细，粗细与页面里那根进度条一致。
+   仍然用 id+class + !important 压 §15 / §22 / §24 的历史值。 */
+#pf-volume.pf-volume {
+  width: clamp(200px, 24vw, 380px) !important;
+  height: 4px !important;
+  border-radius: 2px;
+}
+#pf-volume.pf-volume::-webkit-slider-thumb { width: 12px; height: 12px; }
+@media (min-width: 900px) and (orientation: portrait) {
+  #pf-volume.pf-volume { width: clamp(240px, 52vw, 460px) !important; }
+}
+
+/* 25.5 歌词工具栏（原文/翻译/逐字）：矮一点、圆一点，别再是方块字贴 */
+.pf-lyrics-toolbar,
+.pf-lyrics-wrap .pf-lyrics-toolbar {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 6px !important;
+  gap: 6px;
+}
+.pf-lyrics-toolbar button {
+  min-height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+
+/* 25.6 列表页（歌单页）去掉「歌词」按钮：功能入口整体下线，面板也不再占位 */
+#btn-lyrics,
+#lyrics-panel {
+  display: none !important;
+}
+
+/* 25.7 左下角的版本号角标（bridge 动态插入）：小字、低对比、贴在侧栏底部。
+   不要底色块——之前那版加了渐变底，在深色侧栏上反而显出一块灰条。 */
+#mb-corner-ver {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  padding: 10px 2px 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0.3px;
+  color: var(--text-faint, #7b808c);
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+  background: none;
+}
+@media (max-width: 700px) {
+  /* 手机竖屏侧栏是收起的，角标跟着藏，免得浮在列表上 */
+  #mb-corner-ver { display: none; }
+}
+
+/* 25.8 通用按钮（.btn）：设置面板里的「检查更新 / 保存设置」这类实心/描边按钮
+   也收一档——矮一点、圆一点、字小一点，别用大块橙色糊在面板上。 */
+.btn {
+  padding: 7px 13px;
+  font-size: 12px;
+  border-radius: 9px;
+  gap: 6px;
+  font-weight: 500;
+}
+.btn.small { padding: 5px 9px; font-size: 11px; border-radius: 7px; }
+.modal-close,
+.theme-popover-head button {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+  border-radius: 50%;
+  line-height: 1;
+}
+
+/* =========================================================
+   26) 1.0.11：列表改成「网易云」式两行 —— 歌名在上、歌手·专辑在下
+   用户反馈：表格三列布局时，单击右侧空白常误中「歌手/专辑」单元格，
+   一点专辑名就跳去筛选该专辑。改两行后，右侧整块都是行本身的点击区。
+   注意：行高必须仍然 = 44px —— 虚拟列表按 ROW_H=44（app.js:1374）
+   用固定 px 定位每行 top，改高会整体错行。
+   ========================================================= */
+.track-row {
+  grid-template-columns: 30px fit-content(150px) minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  column-gap: 10px !important;
+  row-gap: 0 !important;
+  align-content: center !important;
+  align-items: center !important;
+  height: 44px !important;
+  min-height: 0 !important;
+  padding: 0 10px !important;
+  overflow: hidden;
+}
+.track-row .t-index {
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+  font-size: 11.5px !important;
+}
+/* 第一行：歌名（+ 缺失/音质等徽标），横跨右侧整块 */
+.track-row .t-title {
+  grid-column: 2 / span 2 !important;
+  grid-row: 1 !important;
+  gap: 6px !important;
+  align-items: center !important;
+}
+.track-row .t-title .txt { font-size: 13px; line-height: 1.1; }
+/* 第二行：歌手 · 专辑，缩成小字、靠左紧挨着，右侧不再被它们占住 */
+.track-row .t-artist {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  justify-self: start !important;
+  max-width: 100%;
+  font-size: 11px !important;
+  line-height: 1.1;
+}
+.track-row .t-album {
+  grid-column: 3 !important;
+  grid-row: 2 !important;
+  justify-self: start !important;
+  max-width: 46%;
+  font-size: 11px !important;
+  line-height: 1.1;
+}
+.track-row .t-album::before { content: "·"; margin-right: 5px; opacity: 0.45; }
+.track-row .t-album:empty { display: none; }
+/* 徽标在两行布局里收小一档，别把歌名挤掉 */
+.track-row .quality-badge,
+.track-row .missing-badge,
+.track-row .online-badge,
+.track-row .fixed-badge,
+.track-row .lock-badge {
+  transform: scale(0.92);
+  transform-origin: left center;
+}
+
+/* 26.2 表头：不再模拟四列，改成一行紧凑的排序图例（# 标题 歌手 专辑） */
+#track-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 18px !important;
+  padding: 8px 10px 6px !important;
+  font-size: 10.5px !important;
+}
+#track-head .col-index { width: 30px; text-align: center; }
+
+/* 26.3 播放页（海报页）音量条：长度直接对齐歌单页页脚那根
+   （#volume = clamp(120px, 13vw, 190px)，见 §25.2），粗细仍与进度条一致 4px。 */
+#pf-volume.pf-volume {
+  width: clamp(120px, 13vw, 190px) !important;
+  height: 4px !important;
+  border-radius: 2px;
+}
+#pf-volume.pf-volume::-webkit-slider-thumb { width: 12px; height: 12px; }
+
+/* =========================================================
+   27) 1.0.12：列表左侧缩略封面 + 页脚播放条改「网易云」式排布
+   ========================================================= */
+
+/* 27.1 列表行多了最左边的封面格子：封面 36px / 序号 26px / 内容 */
+.track-row {
+  grid-template-columns: 36px 26px fit-content(150px) minmax(0, 1fr) !important;
+  column-gap: 10px !important;
+}
+.track-row .mb-row-cover {
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  overflow: hidden;
+  align-self: center;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.track-row .mb-row-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.mb-cover-ph { font-size: 15px; line-height: 1; color: var(--text-faint, #7b808c); opacity: 0.45; }
+.track-row .t-index { grid-column: 2 !important; }
+.track-row .t-title { grid-column: 3 / span 2 !important; }
+.track-row .t-artist { grid-column: 3 !important; }
+.track-row .t-album { grid-column: 4 !important; max-width: 52%; }
+/* 占位的缺失歌曲整行半透明，封面跟着暗下去，别抢正在播放的行 */
+.track-row.placeholder .mb-row-cover { opacity: 0.6; }
+
+/* 27.2 页脚播放条：一排到底 —— [歌曲信息] [进度条] [按钮组] [音量]
+   （原先是「按钮一组 + 进度条另起一行」的上下两层，网易云是一排：
+     进度条横贯中段、播放键靠右、曲目信息在最左） */
+@media (min-width: 700px) {
+  #player {
+    grid-template-columns: minmax(0, 240px) minmax(0, 1fr) minmax(0, 210px) !important;
+    align-items: center !important;
+    gap: 18px !important;
+    height: 66px !important;
+    padding: 0 18px !important;
+  }
+  #player .controls {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 16px !important;
+    height: 100% !important;
+    width: 100%;
+  }
+  #player .controls .seekbar {
+    grid-column: 1;
+    grid-row: 1;
+    max-width: none !important;
+    margin-top: 0 !important;
+    width: 100% !important;
+  }
+  #player .controls .btns {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 2px !important;
+  }
+  /* 桌面上那个「让播放键居中」的隐形配重在这里没用，去掉 */
+  #player .btns::before { display: none !important; }
+  #player .now { min-width: 0; }
+  #player #cover { width: 40px !important; height: 40px !important; border-radius: 5px !important; }
+  #player .time { width: 34px; font-size: 10px; }
+  #player .vol { gap: 6px !important; }
+}
+/* 竖屏平板：信息区再窄一点，进度条才有地方 */
+@media (min-width: 700px) and (max-width: 900px) {
+  #player { grid-template-columns: minmax(0, 176px) minmax(0, 1fr) minmax(0, 158px) !important; gap: 10px !important; }
+  #player #volume { width: clamp(80px, 14vw, 130px) !important; }
+  #player #cover { width: 34px !important; height: 34px !important; }
+  #player .time { width: 28px; font-size: 9.5px; }
+  #player #now-title { font-size: 12px; }
+}
+
+/* ==========================================================================
+   28) 1.0.14
+   - 歌单页每行右侧那 4 个悬停才露面的小按钮（收藏/歌单/播放/下一首）整组去掉：
+     平板是触屏，行内右侧空白本来就是"点这一行"的点击区，那 4 个按钮只会被误触。
+   - 播放页（海报页）歌词区放宽，原文/翻译/逐字 三个开关再往上提一点。
+   - 播放页左下角新增全屏按钮：点进「沉浸态」只留专辑封面 + 歌词，两边都放大拉伸。
+   ========================================================================== */
+
+/* 28.1 行内操作按钮组下线（缺歌的「缺失」提示也一起没了，徽标已经写在歌名后面） */
+#track-list .row-actions,
+.track-row .row-actions {
+  display: none !important;
+}
+
+/* 28.2 播放页歌词区：左侧封面区收窄、歌词吃掉剩下的宽度 */
+/* 28.2 横屏（≥900px）：歌词区宽度保持原样（1.0.14 一度放宽到吃掉剩余宽度，
+   后来确认用户要的是「按钮更靠上」，不是把歌词拉宽，已经还原）。
+   1.0.16：三个开关移到歌词列正上方靠顶的位置（用户圈的那个橙框）。
+   注意：不能用 transform —— 上面 §25 那条 `.pf-lyrics-toolbar{transform:none!important}`
+   会把它按死（1.0.15 的 translateY 就是这么白改的）。改用「负 margin-top + 等额
+   margin-bottom」：牌面视觉上抬高 80px，而它在纵向流里的占位高度不变，
+   所以下面第一行歌词的位置一点不动。 */
+@media (min-width: 900px) and (orientation: landscape) {
+  #player-full .pf-lyrics-toolbar {
+    margin-top: -80px;
+    margin-bottom: 80px;
+    padding-bottom: 0;
+  }
+}
+
+/* 28.3 左下角全屏按钮（插在 .pf-controls 的第一列，不影响播放键居中）。
+   用户要求「不要底色，就简洁的线条」：无背景、无边框、纯图标。 */
+#player-full .pf-side-left {
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#player-full .mb-fs-btn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+#player-full .mb-fs-btn svg { width: 19px; height: 19px; }
+#player-full .mb-fs-btn:hover,
+#player-full .mb-fs-btn.on {
+  background: none;
+  color: #fff;
+}
+
+/* 28.4 沉浸态：只显示专辑封面 + 歌词，并各自放大拉伸 */
+#player-full.pf-immo .pf-top,
+#player-full.pf-immo .pf-meta,
+#player-full.pf-immo .pf-progress,
+#player-full.pf-immo .pf-center,
+#player-full.pf-immo .pf-side-right,
+#player-full.pf-immo .pf-lyrics-toolbar,
+#player-full.pf-immo .pf-spacing-panel,
+#player-full.pf-immo .pf-lyric-head-row {
+  display: none !important;
+}
+#player-full.pf-immo .pf-body {
+  max-width: none;
+  width: 100%;
+  flex: 1;
+  gap: clamp(16px, 2.4vw, 52px);
+}
+#player-full.pf-immo .pf-cover-col {
+  --pf-cover-size: clamp(260px, 58vh, 640px);
+  max-width: 52vw;
+}
+#player-full.pf-immo .pf-lyrics-wrap {
+  max-width: none;
+  flex: 1 1 auto;
+  height: clamp(320px, 86vh, 1100px);
+}
+/* 歌词字跟着画幅放大一档，才有"拉伸感"而不是一片留白 */
+#player-full.pf-immo .pf-lyric-line,
+#player-full.pf-immo .pf-lyric-row .pf-lyric-cell {
+  font-size: calc(clamp(18px, calc(0.72vw + 1.16vh), 40px) * var(--lyric-scale, 1));
+}
+/* 沉浸态下底部只剩那颗按钮：控制区压扁，别留一条黑带 */
+#player-full.pf-immo .pf-bottom {
+  padding: 0 clamp(14px, 2vw, 32px) clamp(6px, 1.4vh, 18px);
+  max-width: none;
+  min-height: 0;
+}
+#player-full.pf-immo .pf-controls { column-gap: 0; }
+/* 沉浸态别被"静止 3 秒自动淡出"顺手藏掉退出按钮 */
+#player-full.pf-immo .pf-side-left,
+#player-full.pf-immo.idle .pf-side-left {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+/* 28.5 竖屏（含 813px 宽的手机比例）：沉浸态必须是「封面在上、歌词在下」，
+   横排那套在竖屏会把封面撑到 640px 宽、把歌词挤出屏幕（真机 813×1219 实测过）。 */
+@media (orientation: portrait) {
+  #player-full.pf-immo .pf-body {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: clamp(10px, 1.6vh, 22px);
+    padding: 2px clamp(12px, 4vw, 28px) 0;
+  }
+  #player-full.pf-immo .pf-cover-col {
+    --pf-cover-size: min(40vh, 420px);
+    max-width: 100%;
+    flex-direction: column;
+    align-items: center;
+  }
+  #player-full.pf-immo .pf-lyrics-wrap {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  #player-full.pf-immo .pf-lyric-line,
+  #player-full.pf-immo .pf-lyric-row .pf-lyric-cell {
+    font-size: calc(clamp(15px, 4.6vw, 24px) * var(--lyric-scale, 1));
+  }
+  /* 竖屏也只剩那颗退出键，别再压着歌词 */
+  #player-full.pf-immo .pf-bottom {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: auto;
+    padding: 0 0 clamp(6px, 1.2vh, 14px) clamp(10px, 3vw, 20px);
+    background: none;
+  }
+}
+
+/* =========================================================
+   29) 1.0.17
+   ========================================================= */
+
+/* 29.1 去掉列表顶上那行「# 标题 歌手 专辑」字标（用户要求），
+   整行一起收掉，免得留一条空灰条；排序仍可从侧栏「排序」菜单用 */
+#track-head { display: none !important; }
+
+/* §30 1.0.20：左上角 logo 改用真图标（用户给的 MusicSMX-icon-1024.png 派生） */
+#logo-home .logo-icon { padding: 0; overflow: hidden; background: #1A1D26; }
+#logo-home .logo-icon img {
+  width: 100%; height: 100%; display: block; object-fit: cover;
+  border-radius: inherit;
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MusicSMX</string>
+    <string name="title_activity_main">MusicSMX</string>
+    <string name="package_name">cn.sunmanxu.musicsmx</string>
+    <string name="custom_url_scheme">cn.sunmanxu.musicsmx</string>
+</resources>

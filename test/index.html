@@ -1,0 +1,1606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MusicSMX</title>
+<link rel="stylesheet" href="../www/style.css">
+<link rel="stylesheet" href="../www/native/android.css">
+<!-- hls.js 不再首屏加载：只在真的要播 / 检测 m3u8 电台时由 loadHls() 动态注入 -->
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div class="logo" id="logo-home" title="打开 GitHub 项目主页">
+      <div class="logo-icon">S</div>
+      <span>MusicSMX</span>
+    </div>
+    <div class="search-wrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+        <path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <input id="search" type="text" placeholder="搜索标题 / 歌手 / 专辑" spellcheck="false">
+      <button id="search-clear" class="search-clear" title="清空搜索" hidden>×</button>
+    </div>
+    <div class="sort-wrap">
+      <button id="btn-sort" class="ctl ctl-text" title="排序方式">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M6 12h12M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span id="sort-label">添加时间</span>
+      </button>
+      <div id="sort-menu" class="sort-menu" hidden>
+        <div class="sort-item" data-sort="addedTime" data-dir="-1">添加时间（新→旧）</div>
+        <div class="sort-item" data-sort="addedTime" data-dir="1">添加时间（旧→新）</div>
+        <div class="sort-item" data-sort="title" data-dir="1">名称（A→Z）</div>
+        <div class="sort-item" data-sort="title" data-dir="-1">名称（Z→A）</div>
+        <div class="sort-item" data-sort="artist" data-dir="1">歌手（A→Z）</div>
+        <div class="sort-item" data-sort="artist" data-dir="-1">歌手（Z→A）</div>
+        <div class="sort-item" data-sort="shuffle">随机排序</div>
+        <!-- 歌单来源窗口：每个平台一行链接，点右侧「刷新」按链接重抓顺序（不改排序方式） -->
+        <div class="sort-item" id="sort-playlist-source" style="color: var(--accent);">🌐 歌单来源 / 刷新顺序…</div>
+        <div class="sort-item has-submenu" id="sort-import-qqmusic" style="color: var(--accent);">
+          📥 导入本地歌单JSON
+          <span class="submenu-arrow">▶</span>
+          <div id="import-history-submenu" class="submenu" hidden>
+            <div class="submenu-title">已导入的歌单</div>
+            <div id="import-history-list"></div>
+            <div class="ctx-sep"></div>
+            <div class="submenu-item" id="submenu-import-file">📂 从文件导入...</div>
+          </div>
+        </div>
+      </div>
+      <input type="file" id="qqmusic-import-input" accept=".json" hidden>
+    </div>
+    <!-- 顶栏工具按钮 -->
+    <div class="top-tools">
+      <div class="batch-wrap">
+        <button id="btn-batch" class="ctl" title="工具">
+          <!-- 工具箱图标（2026-11-22 用户要求）：提手 + 箱体 + 搭扣 -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8V6a3 3 0 0 1 6 0v2"/><rect x="2" y="8" width="20" height="13" rx="2"/><path d="M2 12.5h20"/><rect x="9.5" y="10.5" width="5" height="4" rx="0.8"/></svg>
+        </button>
+        <div id="batch-menu" class="batch-menu" hidden>
+          <div class="batch-item" data-action="auto-fix">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div>
+              <div class="batch-title">自动修复</div>
+              <div class="batch-desc">联网校验并修复所有歌曲的标题、歌手、专辑</div>
+            </div>
+          </div>
+          <div class="batch-item" data-action="batch-download">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7 10 12 15 17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div>
+              <div class="batch-title">批量下载</div>
+              <div class="batch-desc">一键下载所有歌曲的专辑封面和歌词（已下载自动跳过）</div>
+            </div>
+          </div>
+          <div class="batch-item" data-action="batch-mp3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 18V5l12-2v13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="16" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            <div>
+              <div class="batch-title">批量转格式</div>
+              <div class="batch-desc">将歌曲批量转换为MP3/FLAC/WAV/AAC/M4A/OGG格式，可选输出路径</div>
+            </div>
+          </div>
+          <div class="batch-item" data-action="export-missing">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="7 10 12 15 17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div>
+              <div class="batch-title">导出缺失歌曲名单</div>
+              <div class="batch-desc">导出当前列表中本地缺失的歌曲（占位）为txt文件</div>
+            </div>
+          </div>
+          <div class="batch-item" data-action="check-dupes">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <div>
+              <div class="batch-title">检查重复歌曲</div>
+              <div class="batch-desc">按「同名同歌手 + 时长」与「文件内容完全相同」两种方式查重，可批量删除</div>
+            </div>
+          </div>
+          <div class="batch-item" data-action="merge-libraries">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 9h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 18v-5m0 0l-2 2m2-2l2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div>
+              <div class="batch-title">音乐库合并</div>
+              <div class="batch-desc">把两个音乐文件夹合并为一个：重叠歌曲自动选优保留（信息全/更新的），互补信息合并</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button id="btn-theme" class="ctl" title="个性化">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 .55.45 1 1 1h10c.55 0 1-.45 1-1V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg>
+      </button>
+      <div id="theme-popover" class="theme-popover" hidden>
+        <div class="theme-popover-head">外观</div>
+        <div class="setting-row">
+          <span class="setting-label">背景模式</span>
+          <div class="bg-mode-seg" id="bg-mode-seg">
+            <button type="button" data-mode="solid">纯色模式</button>
+            <button type="button" data-mode="poster">海报模式</button>
+          </div>
+        </div>
+        <div class="setting-row" id="tp-ui-row">
+          <span class="setting-label">海报氛围度</span>
+          <div class="tp-slider-row">
+            <input type="range" id="tp-ui-opacity" min="0" max="100" step="1" value="28">
+            <span class="setting-val" id="tp-ui-opacity-val">28%</span>
+          </div>
+        </div>
+    <div class="setting-row">
+      <span class="setting-label">主题强调色</span>
+      <div class="accent-swatches" id="accent-swatches">
+        <button class="accent-swatch" data-color="#ff6b3d" title="橙" style="--c:#ff6b3d"></button>
+        <button class="accent-swatch" data-color="#4ea1ff" title="蓝" style="--c:#4ea1ff"></button>
+        <button class="accent-swatch" data-color="#39d98a" title="绿" style="--c:#39d98a"></button>
+        <button class="accent-swatch" data-color="#b47cff" title="紫" style="--c:#b47cff"></button>
+        <button class="accent-swatch" data-color="#ff5d8f" title="粉" style="--c:#ff5d8f"></button>
+        <button class="accent-swatch" data-color="#ffd166" title="金" style="--c:#ffd166"></button>
+        <label class="accent-swatch custom" id="accent-custom-wrap" title="自定义强调色">
+          <input type="color" id="accent-custom" value="#ff6b3d">
+        </label>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">界面底色<i class="dim-hint">（纯色模式生效）</i></span>
+      <div class="accent-swatches" id="bg-swatches">
+        <!-- 预设色块由 app.js 动态渲染（S.settings.bgPresets，右键可删） -->
+        <label class="accent-swatch custom" id="bg-custom-wrap" title="自定义底色（自动加入预设）">
+          <input type="color" id="bg-custom" value="#12141a">
+        </label>
+      </div>
+    </div>
+      </div>
+      <button id="btn-settings" class="ctl" title="设置">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <aside id="sidebar">
+      <div class="side-section">
+        <ul class="nav-list">
+          <li class="nav-item active" data-view="music">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 18V5l12-2v13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="16" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            全部音乐
+            <button id="sidebar-add-folder" class="nav-add-btn" title="添加音乐文件夹">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+            </button>
+          </li>
+          <li class="nav-item" data-view="radio">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5M19.1 4.9C23 8.8 23 15.1 19.1 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+            网络电台
+          </li>
+        </ul>
+      </div>
+      <div class="side-section">
+        <ul class="nav-list">
+          <li class="nav-item" id="sidebar-favorites" data-view="favorites">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            收藏
+            <span class="fcount">0</span>
+          </li>
+        </ul>
+      </div>
+      <div class="side-section" id="playlist-section">
+        <div class="side-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M21 15V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="18.5" cy="15.5" r="2.5" stroke="currentColor" stroke-width="2"/><path d="M12 12H3M16 6H3M12 18H3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          我的歌单
+          <button id="add-playlist-btn" class="nav-add-btn" title="新建歌单">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <ul id="playlist-list"></ul>
+      </div>
+      <div class="side-section" id="music-library-section">
+        <ul id="folder-list"></ul>
+      </div>
+      <div class="side-section">
+        <div class="side-title">统计</div>
+        <div id="stats" class="stats"></div>
+      </div>
+      <div class="side-section" id="recycle-bin-section">
+        <div class="side-title" id="recycle-bin-toggle" style="cursor: pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          回收站
+          <span class="fcount" id="recycle-bin-count">0</span>
+          <svg id="recycle-bin-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" style="transition: transform 0.2s; margin-left: 2px;"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <ul id="recycle-bin-list" class="recycle-bin-list" style="display: none;"></ul>
+      </div>
+    </aside>
+
+    <section id="content">
+      <!-- 自动修复内嵌进度条 -->
+      <div id="autofix-bar" class="autofix-bar" style="display: none;">
+        <div class="autofix-bar-progress-wrap">
+          <div class="autofix-bar-progress" id="autofix-bar-progress"></div>
+        </div>
+        <div class="autofix-bar-stats">
+          <span class="af-stat af-fixed">已修复 <b id="af-bar-fixed">0</b></span>
+          <span class="af-stat af-skip">无需 <b id="af-bar-skip">0</b></span>
+          <span class="af-stat af-fail">失败 <b id="af-bar-fail">0</b></span>
+          <span class="af-stat af-count" id="af-bar-count">0/0</span>
+        </div>
+        <button class="af-cancel-btn" id="af-bar-cancel" title="取消修复">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <!-- 批量下载进度条 -->
+      <div id="batchdl-bar" class="autofix-bar" style="display: none;">
+        <div class="autofix-bar-progress-wrap">
+          <div class="autofix-bar-progress" id="batchdl-bar-progress" style="background: linear-gradient(90deg, #4facfe, #00f2fe);"></div>
+        </div>
+        <div class="autofix-bar-stats">
+          <span class="af-stat af-fixed">封面 <b id="bd-bar-cover">0</b></span>
+          <span class="af-stat af-skip">歌词 <b id="bd-bar-lyrics">0</b></span>
+          <span class="af-stat af-fail">失败 <b id="bd-bar-fail">0</b></span>
+          <span class="af-stat af-count" id="bd-bar-count">0/0</span>
+        </div>
+        <button class="af-cancel-btn" id="bd-bar-cancel" title="取消下载">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <!-- 电台视图 -->
+      <div id="radio-view" style="display: none;">
+        <div class="radio-header">
+          <h2 class="radio-title">网络电台</h2>
+          <div class="radio-header-right">
+            <div class="radio-filter">
+              <button class="radio-filter-btn active" data-cat="all">全部</button>
+              <button class="radio-filter-btn" data-cat="国内">国内</button>
+              <button class="radio-filter-btn" data-cat="国外">国外</button>
+              <button class="radio-filter-btn" data-cat="音乐">音乐</button>
+              <button class="radio-filter-btn" data-cat="新闻">新闻</button>
+              <button class="radio-filter-btn" data-cat="recent">最近</button>
+              <button class="radio-filter-btn" data-cat="fav">收藏</button>
+            </div>
+            <div class="radio-view-toggle">
+              <button class="radio-view-btn" data-view="grid" title="卡片视图">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/><rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+              <button class="radio-view-btn active" data-view="list" title="列表视图">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+            <button id="btn-radio-check" class="btn ghost" style="padding:5px 12px;font-size:12px;" title="一键检测所有电台可播放状态">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 4L12 14.01l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              一键检测
+            </button>
+            <button id="btn-radio-add" class="btn ghost" style="padding:5px 12px;font-size:12px;" title="添加自定义电台">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              添加
+            </button>
+            <button id="btn-radio-multi" class="btn ghost" style="padding:5px 12px;font-size:12px;" title="多选删除">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              多选
+            </button>
+          </div>
+        </div>
+        <div class="radio-nowbar" id="radio-nowbar" hidden>
+          <div class="radio-nowbar-logo" id="radio-nowbar-logo"></div>
+          <div class="radio-nowbar-info">
+            <div class="radio-nowbar-name" id="radio-nowbar-name"></div>
+            <div class="radio-nowbar-sub" id="radio-nowbar-sub"></div>
+          </div>
+          <div class="radio-nowbar-eq"><span></span><span></span><span></span><span></span></div>
+          <button class="btn ghost small" id="btn-radio-stop">停止收听</button>
+        </div>
+        <div id="radio-list" class="radio-grid"></div>
+        <div id="radio-empty" class="radio-empty" hidden></div>
+        <!-- 多选操作栏 -->
+        <div id="radio-multi-bar" class="radio-multi-bar" hidden>
+          <span id="radio-multi-count">已选 0 个</span>
+          <button id="btn-radio-select-all" class="btn ghost" style="padding:4px 10px;font-size:12px;">全选</button>
+          <button id="btn-radio-delete-selected" class="btn" style="padding:4px 10px;font-size:12px;background:#e53935;color:#fff;border:none;">删除选中</button>
+          <button id="btn-radio-multi-cancel" class="btn ghost" style="padding:4px 10px;font-size:12px;">取消</button>
+        </div>
+      </div>
+      <div id="scan-status" hidden>
+        <span class="spin"></span><span id="scan-text">扫描中…</span>
+        <div class="scan-progress"><div id="scan-bar"></div></div>
+      </div>
+      <div id="track-head">
+        <span class="col-index">#</span>
+        <span class="col-title" data-sort="title">标题</span>
+        <span class="col-artist" data-sort="artist">歌手</span>
+        <span class="col-album" data-sort="album">专辑</span>
+      </div>
+      <div id="track-list"></div>
+      <button type="button" id="locate-current-float" class="float-btn locate-current-float" title="定位到当前播放歌曲" aria-label="定位到当前播放歌曲">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button type="button" id="back-to-top" class="float-btn back-to-top" title="回到列表顶部" aria-label="回到列表顶部">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="empty-state">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+          <path d="M9 18.5a3 3 0 1 1-2-2.83V6.2a1 1 0 0 1 .76-.97l9-2.25A1 1 0 0 1 18 3.94v11.72"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p class="empty-main">还没有音乐</p>
+        <p class="empty-dim">点击此处或左上角「全部音乐」旁的 ＋ 添加文件夹，也可以直接把音乐文件 / 文件夹拖进窗口</p>
+      </div>
+    </section>
+  </main>
+
+  <footer id="player">
+    <div class="now">
+      <div id="cover"><span class="cover-fallback">♪</span></div>
+      <div class="now-text">
+        <button id="now-title" class="now-link" title="点击跳转网页详情">未在播放</button>
+        <div class="now-sub">
+          <button id="now-artist" class="now-link" title="点击跳转歌手网页">—</button>
+          <span class="now-sep" id="now-sep" hidden>·</span>
+          <button id="now-album" class="now-link" title="点击跳转专辑网页">—</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="btns">
+        <button id="btn-mode" class="ctl" title="播放模式：列表循环"></button>
+        <button id="btn-prev" class="ctl" title="上一首">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 5h2v14H6zM20 5v14L9.5 12z"/>
+          </svg>
+        </button>
+        <button id="btn-play" class="ctl big" title="播放 / 暂停">
+          <svg id="ic-play" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 4.5v15l13-7.5z"/>
+          </svg>
+          <svg id="ic-pause" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+            <path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/>
+          </svg>
+        </button>
+        <button id="btn-next" class="ctl" title="下一首">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/>
+          </svg>
+        </button>
+        <!-- 播放列表 / 均衡器跟全屏页保持同一位置：都在「下一首」右边 -->
+        <button id="btn-queue" class="ctl" title="播放列表">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M4 6h16M4 11h16M4 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M17 14l4 2.5-4 2.5z" fill="currentColor"/>
+          </svg>
+          <span class="queue-count" id="queue-count" style="display:none">0</span>
+        </button>
+        <button id="btn-eq" class="ctl" title="均衡器 / 音频曲线">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
+            <path d="M1 14h6M9 8h6M17 16h6"/>
+          </svg>
+        </button>
+      </div>
+      <div class="seekbar">
+        <span id="cur-time" class="time">0:00</span>
+        <div id="seek" class="seek">
+          <div id="seek-fill"></div>
+          <div id="seek-knob"></div>
+        </div>
+        <span id="dur-time" class="time">0:00</span>
+      </div>
+    </div>
+
+    <div class="vol">
+      <!-- 歌词面板：只留图标。以前带「歌词」两个字，页脚右侧本来就不宽，
+           文字把音量条挤得没地方（2026-11-18 反馈）。 -->
+      <button id="btn-lyrics" class="ctl" title="歌词">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M4 6h16M4 12h10M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <!-- 桌面 / 任务栏歌词入口：紧贴「歌词」右边，用一个「词」字当图标，
+           比显示器图标直观（用户分不清那是投屏还是歌词）。 -->
+      <button id="btn-desktop-lyric" class="ctl ctl-word" title="桌面歌词 / 任务栏歌词">
+        <span class="ctl-glyph">词</span>
+      </button>
+      <button id="btn-mute" class="ctl" title="静音">
+        <svg id="ic-vol" width="17" height="17" viewBox="0 0 24 24" fill="none">
+          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+          <path id="vol-wave" d="M16 8.5a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <input id="volume" type="range" min="0" max="100" value="5" title="音量">
+    </div>
+  </footer>
+
+</div>
+
+<audio id="audio" preload="metadata"></audio>
+<div id="toast" hidden></div>
+<div id="error-panel" hidden></div>
+
+<!-- 设置面板 -->
+<div id="settings-modal" class="theme-popover settings-pop" hidden>
+  <div class="theme-popover-head settings-pop-head">
+    <span>设置</span>
+    <button class="modal-close" data-close="settings">×</button>
+  </div>
+  <div class="settings-pop-body">
+      <label class="settings-check-line">
+        <input type="checkbox" id="set-auto-fetch">
+        <span>自动获取封面与歌词:下方为封面歌词缓存路径</span>
+      </label>
+      <div class="setting-row">
+        <div class="path-row">
+          <input type="text" id="set-cache-path" placeholder="留空则用软件数据目录 cache" spellcheck="false">
+          <button class="btn small ghost" id="btn-open-cache-path">打开</button>
+          <button class="btn small ghost" id="btn-clear-cache-path">清除</button>
+        </div>
+      </div>
+      <label class="settings-check-line">
+        <input type="checkbox" id="set-word-lyrics">
+        <span>逐字点亮</span>
+      </label>
+      <label class="settings-check-line">
+        <input type="checkbox" id="set-close-tray">
+        <span>关闭时缩到托盘</span>
+      </label>
+      <label class="settings-check-line">
+        <input type="checkbox" id="set-autostart">
+        <span>开机自启</span>
+      </label>
+    </div>
+    <div class="settings-pop-foot">
+      <button class="btn ghost" id="btn-check-update">检查更新</button>
+      <button class="btn" id="btn-save-settings">保存设置</button>
+    </div>
+</div>
+
+<!-- 歌词面板 -->
+<div id="lyrics-panel" class="lyrics-panel" hidden>
+  <!-- 头部只放「身份 + 关闭」：桌面歌词入口已经挪到页脚「歌词」按钮旁边，
+       这里不再塞按钮，× 永远是最后一个、不会被挤出去。 -->
+  <div class="lyrics-head">
+    <!-- 歌词来源徽章：点击可切换词源（右键歌词区同样可切换） -->
+    <span id="lyrics-title" class="lyric-source-chip" title="当前歌词来源，点击切换词源">歌词</span>
+    <div class="lyrics-head-actions">
+      <button class="lyrics-close" id="btn-lyrics-close" title="关闭歌词面板">×</button>
+    </div>
+  </div>
+  <div class="lyrics-toolbar">
+    <div class="lyrics-mode-switch">
+      <button class="lyrics-mode-btn active" data-mode="orig">原文</button>
+      <button class="lyrics-mode-btn" data-mode="trans">翻译</button>
+    </div>
+    <div class="lyric-offset" title="歌词同步微调：正数让歌词提前显示">
+      <button class="lo-btn" data-lo="-1" title="歌词延后 0.1 秒">−</button>
+      <span class="lo-val" data-lo-val title="点击归零">0.0s</span>
+      <button class="lo-btn" data-lo="1" title="歌词提前 0.1 秒">+</button>
+    </div>
+  </div>
+  <div class="lyrics-body" id="lyrics-body">
+    <div class="lyrics-empty">暂无歌词，播放歌曲时自动获取</div>
+  </div>
+</div>
+
+<!-- 桌面歌词 / 任务栏歌词 外观菜单：独立浮层。
+     按钮在页脚「歌词」旁边（面板内不再内嵌），所以菜单不能放进 #lyrics-panel：
+     父级 hidden 会把它一起藏掉，面板一关就再也弹不出来了。 -->
+<div id="desktop-lyric-menu" class="desktop-lyric-menu" hidden>
+  <!-- 模式三档：原来是三行不起眼的纯文字（关闭桌面歌词 / 桌面悬浮歌词 / 任务栏歌词），
+       既没有当前项高亮、也看不出「现在开的是哪个」，用户根本不知道该点哪儿。
+       改成三个等宽卡片：图标 + 名称，当前档整块填主题色。 -->
+  <div class="dlm-modes" id="dlm-mode">
+    <button type="button" data-mode="off" title="关闭桌面 / 任务栏歌词">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      <span>关闭</span>
+    </button>
+    <button type="button" data-mode="desktop" title="桌面悬浮歌词：可拖到桌面任意位置">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      <span>桌面</span>
+    </button>
+    <button type="button" data-mode="taskbar" title="任务栏歌词：贴在任务栏上，可左右拖动">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 15.5h20"/><path d="M6 18.5h4"/></svg>
+      <span>任务栏</span>
+    </button>
+  </div>
+  <div class="dlm-sep"></div>
+  <div class="dlm-row">
+    <span class="dlm-label">布局</span>
+    <div class="dlm-seg" id="dlm-layout">
+      <button data-layout="single" title="只显示当前一句">单行</button>
+      <button data-layout="dual" title="两行固定：正在唱的句子原地不动，另一行提前显示下一句">双行</button>
+    </div>
+  </div>
+  <div class="dlm-row">
+    <span class="dlm-label">背景</span>
+    <div class="dlm-seg" id="dlm-bg">
+      <button data-bg="none">透明</button>
+      <button data-bg="soft">磨砂</button>
+      <button data-bg="dark">深色</button>
+    </div>
+  </div>
+  <div class="dlm-sep"></div>
+  <div class="dlm-scale">
+    <!-- 桌面 / 任务栏两套字号各自独立：标题里的模式名由 refreshLyricScaleUI() 写入，
+         否则用户切了模式看到同一个数值会以为滑块没生效。下限 30%。 -->
+    <div class="dlm-scale-head"><span id="dlm-scale-label">歌词大小 · 任务栏</span><span id="dlm-scale-val">140%</span></div>
+    <input type="range" id="dlm-scale" min="30" max="180" step="5" value="140" title="调整当前模式的歌词大小（桌面 70% / 任务栏 140%）">
+  </div>
+  <div class="dlm-scale">
+    <div class="dlm-scale-head"><span id="dlm-opacity-label">文字透明度 · 任务栏</span><span id="dlm-opacity-val">30%</span></div>
+    <input type="range" id="dlm-opacity" min="10" max="100" step="5" value="30" title="只调文字本身的透明度，底板不受影响（下限 10%）">
+  </div>
+  <!-- 水平平移：任务栏歌词默认贴任务栏正中，但 Win11 居中图标/小组件会占住中间，
+       这条滑块让歌词整体往左/往右挪。仅任务栏模式有意义，桌面模式隐藏（桌面直接拖）。 -->
+  <div class="dlm-scale" id="dlm-offset-row">
+    <div class="dlm-scale-head"><span id="dlm-offset-label">水平平移 · 任务栏</span><span id="dlm-offset-val">0px</span></div>
+    <input type="range" id="dlm-offset" min="-600" max="600" step="10" value="0" title="任务栏歌词整体往左（负值）或往右（正值）平移，单位像素">
+  </div>
+  <div class="dlm-sep"></div>
+  <!-- 颜色预设色块由 app.js 动态渲染（S.settings.lyricColorPresets，右键可删），
+       已唱/未唱共用一份预设列表；「跟随主题色」与自定义取色为固定尾部元素。 -->
+  <div class="dlm-colors">
+    <span class="dlm-label">已唱颜色</span>
+    <div class="dlm-swatches" id="dlm-sung-colors">
+      <button data-color="accent" class="dlm-swatch-accent" title="跟随主题色"></button>
+      <label class="dlm-custom" title="自定义颜色（自动加入预设）">
+        <input type="color" id="dlm-sung-color-custom" value="#ffffff">
+        <span>＋</span>
+      </label>
+    </div>
+  </div>
+  <div class="dlm-scale">
+    <div class="dlm-scale-head"><span>已唱透明度</span><span id="dlm-sung-alpha-val">100%</span></div>
+    <input type="range" id="dlm-sung-alpha" min="10" max="100" step="5" value="100" title="已唱（逐字已点亮部分）的透明度">
+  </div>
+  <div class="dlm-colors">
+    <span class="dlm-label">未唱颜色</span>
+    <div class="dlm-swatches" id="dlm-unsung-colors">
+      <button data-color="accent" class="dlm-swatch-accent" title="跟随主题色"></button>
+      <label class="dlm-custom" title="自定义颜色（自动加入预设）">
+        <input type="color" id="dlm-unsung-color-custom" value="#ffffff">
+        <span>＋</span>
+      </label>
+    </div>
+  </div>
+  <div class="dlm-scale">
+    <div class="dlm-scale-head"><span>未唱透明度</span><span id="dlm-unsung-alpha-val">62%</span></div>
+    <input type="range" id="dlm-unsung-alpha" min="10" max="100" step="5" value="62" title="未唱（还没唱到的字）的透明度">
+  </div>
+  <div class="dlm-sep"></div>
+  <label class="dlm-item dlm-check"><input type="checkbox" id="dlm-words"> 逐字点亮</label>
+  <label class="dlm-item dlm-check"><input type="checkbox" id="dlm-trans"> 显示翻译</label>
+  <label class="dlm-item dlm-check"><input type="checkbox" id="dlm-lock" checked> 鼠标穿透</label>
+  <div class="dlm-hint">鼠标穿透默认开启：要拖动或右键调样式，先取消这里的勾选</div>
+</div>
+
+<!-- 播放列表抽屉（播放顺序：随机模式=打乱顺序） -->
+<div id="queue-panel" class="queue-panel" hidden>
+  <div class="queue-head">
+    <span class="queue-title">播放列表 <span id="queue-total">0</span></span>
+    <div class="queue-head-actions">
+      <button class="btn ghost small" id="btn-queue-clear" title="清空「接下来播放」">清空</button>
+      <button class="queue-close" id="btn-queue-close" title="关闭">×</button>
+    </div>
+  </div>
+  <div class="queue-hint">点击歌曲立即播放 · 随机模式下按打乱顺序显示</div>
+  <div class="queue-list" id="queue-list"></div>
+  <div class="queue-empty" id="queue-empty">
+    <div class="queue-empty-icon">☰</div>
+    <div>曲库是空的</div>
+    <div class="queue-empty-tip">先扫描音乐文件夹或导入歌单</div>
+  </div>
+</div>
+
+<!-- 歌词来源切换菜单 --><div id="lyrics-source-menu" class="ctx-menu" hidden style="position: fixed; z-index: 9999; min-width: 180px;">
+  <div class="ctx-item" style="opacity:0.6;cursor:default;">切换歌词来源</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-source="auto">自动（有词优先）</div>
+  <div class="ctx-item" data-source="网易云音乐">网易云音乐</div>
+  <div class="ctx-item" data-source="QQ音乐">QQ音乐</div>
+  <div class="ctx-item" data-source="酷狗音乐">酷狗音乐</div>
+  <div class="ctx-item" data-source="酷我音乐">酷我音乐</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="load-local-lyrics">选择本地歌词文件</div>
+</div>
+
+<!-- 右键菜单 -->
+<div id="context-menu" class="context-menu" hidden>
+  <div class="ctx-item" data-action="copy-track-name">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    复制歌曲名称
+  </div>
+  <div class="ctx-item" data-action="edit-title">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    修改歌曲信息
+  </div>
+  <div class="ctx-item" data-action="complete-info">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0l-7-7a2 2 0 0 1-.6-1.4V4a1 1 0 0 1 1-1h8.2a2 2 0 0 1 1.4.6l7 7a2 2 0 0 1 0 2.8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/></svg>
+    补全歌曲信息…
+  </div>
+  <div class="ctx-item" data-action="complete-info-batch">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 6h9M4 12h9M4 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M17.5 11.5v6M14.5 14.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    将歌曲歌手专辑名同步至源文件名
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="online-qqmusic" id="ctx-online-qq" title="在 QQ音乐打开这首歌">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M10.6 13.4a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L12 4.9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M13.4 10.6a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.6-1.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    QQ音乐查看
+    <span class="online-plat-tag qq">QQ</span>
+  </div>
+  <div class="ctx-item" data-action="online-netease" id="ctx-online-netease" title="在网易云音乐打开这首歌">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M10.6 13.4a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L12 4.9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M13.4 10.6a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.6-1.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    网易云查看
+    <span class="online-plat-tag netease">网易</span>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="fetch-all">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    一键获取封面和歌词
+  </div>
+  <div class="ctx-item" data-action="clear-refetch">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    清除海报歌词并重新获取
+  </div>
+  <div class="ctx-item" data-action="import-lyrics">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4v16m8-8H4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    手动导入歌词
+  </div>
+  <div class="ctx-item" data-action="auto-fix">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    自动修复歌曲信息
+  </div>
+  <div class="ctx-item" data-action="convert-mp3">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    转换为 MP3（320kbps）
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="delete-track" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    删除歌曲
+  </div>
+  <div class="ctx-item" data-action="show-file">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" stroke="currentColor" stroke-width="2"/></svg>
+    打开文件所在位置
+  </div>
+</div>
+
+<!-- 全屏专辑页：右键歌名 / 歌手 / 专辑 / 封面，选平台看详情或本地筛选 -->
+<div id="album-online-menu" class="ctx-menu" hidden style="position:fixed; min-width:180px;">
+  <div class="ctx-menu-title" id="album-online-title">在平台查看</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-platform="qqmusic" title="在 QQ音乐打开该详情页">跳转至QQ音乐 <span class="online-plat-tag qq">QQ</span></div>
+  <div class="ctx-item" data-platform="netease" title="在网易云音乐打开该详情页">跳转至网易云音乐 <span class="online-plat-tag netease">网易</span></div>
+  <div class="ctx-sep" id="album-online-filter-sep"></div>
+  <div class="ctx-item" id="album-online-filter" title="退回列表并按该歌手/专辑筛选本地歌曲">在曲库中筛选</div>
+</div>
+
+<!-- 网络歌曲右键菜单（歌手筛选追加的灰色在线行专用） -->
+<div id="online-track-menu" class="ctx-menu" hidden style="position:fixed; min-width:200px;">
+  <div class="ctx-menu-title">网络歌曲（未下载）</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="online-qqmusic" title="在 QQ音乐打开这首歌试听">跳转至QQ音乐试听 <span class="online-plat-tag qq">QQ</span></div>
+  <div class="ctx-item" data-action="online-netease" title="在网易云音乐打开这首歌试听">跳转至网易云音乐试听 <span class="online-plat-tag netease">网易</span></div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="get-download" title="尝试获取免会员可下载的直链（会员歌会提示）">获取下载链接（免费歌曲）</div>
+  <div class="ctx-item" data-action="copy-online-title" title="复制歌名到剪贴板">复制歌名</div>
+</div>
+
+<!-- 多选右键菜单（Ctrl/Shift 多选后右键） -->
+<div id="batch-context-menu" class="context-menu" hidden>
+  <div class="ctx-item" id="batch-ctx-count" style="opacity:0.65;cursor:default;">已选 2 首</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="batch-fav">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+    收藏
+  </div>
+  <div class="ctx-item" data-action="batch-add-playlist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    添加到歌单
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="batch-delete" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    删除歌曲
+  </div>
+</div>
+
+<!-- 回收站右键菜单 -->
+<div id="recycle-context-menu" class="context-menu" hidden>
+  <div class="ctx-item" data-action="recycle-restore">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 0 9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 4v5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    恢复到播放列表
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="recycle-delete" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    彻底删除
+  </div>
+  <div class="ctx-item" data-action="recycle-clear" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    清空回收站
+  </div>
+</div>
+
+<!-- 资料库文件夹右键菜单（移除该文件夹；2026-11-22 起 × 按钮下线） -->
+<div id="folder-ctx-menu" class="context-menu" hidden>
+  <div class="ctx-item" data-action="folder-remove" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    移除该文件夹
+  </div>
+</div>
+
+<!-- 占位统计右键菜单（左侧「X 首缺失（占位）」上右键） -->
+<div id="placeholder-ctx-menu" class="context-menu" hidden>  <div class="ctx-item" id="placeholder-ctx-title" style="opacity:0.65;cursor:default;">缺失（占位）</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="filter-placeholders" title="歌曲列表只显示这些缺失/占位条目；再点一次本项，或点统计区的筛选标签即可退出">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 5h16l-6 7v5.5l-4 2.5v-8L4 5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    仅显示这些缺失歌曲
+  </div>
+  <div class="ctx-item" data-action="repair-placeholders" title="在曲库里找同名同曲（忽略歌名注释写法差异）并替换占位，不会联网">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 1 1-3.2-6.9M21 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    修复占位（曲库里找同曲替换）
+  </div>
+  <div class="ctx-item" data-action="delete-all-placeholders" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    删除全部占位条目
+  </div>
+</div>
+
+<!-- 删除音乐确认弹窗 -->
+<div id="delete-track-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="delete-track"></div>
+  <div class="modal-box" style="width: 420px;">
+    <div class="modal-head">
+      <span>删除音乐</span>
+      <button class="modal-close" data-close="delete-track">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: 16px; color: var(--text-dim); font-size: 13px; line-height: 1.6;">
+        确定要删除「<span id="delete-track-name" style="color: var(--text); font-weight: 600;"></span>」吗？
+      </div>
+      <div id="delete-track-hint" style="margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; background: rgba(244, 67, 54, 0.1); color: rgba(244, 67, 54, 0.85); font-size: 12px; line-height: 1.6;" hidden></div>
+      <label id="delete-source-row" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text);">
+        <input type="checkbox" id="delete-source-file" style="width: 16px; height: 16px; cursor: pointer;">
+        <span>同时删除本地源文件（移动至系统回收站，可恢复）</span>
+      </label>
+      <div id="delete-track-tip" style="margin-top: 10px; color: var(--text-faint); font-size: 12px;">
+        点击删除会将歌曲移动至系统回收站
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="delete-track">取消</button>
+      <button class="btn primary" id="btn-confirm-delete-track" style="background: #f44336; border-color: #f44336;">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量删除确认弹窗 -->
+<div id="batch-delete-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="batch-delete"></div>
+  <div class="modal-box" style="width: 420px;">
+    <div class="modal-head">
+      <span>批量删除</span>
+      <button class="modal-close" data-close="batch-delete">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: 16px; color: var(--text-dim); font-size: 13px; line-height: 1.6;">
+        确定要删除选中的 <span id="batch-delete-count" style="color: var(--text); font-weight: 600;"></span> 首歌曲吗？
+      </div>
+      <div id="batch-delete-hint" style="margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; background: rgba(244, 67, 54, 0.1); color: rgba(244, 67, 54, 0.85); font-size: 12px; line-height: 1.6;" hidden></div>
+      <label id="batch-delete-source-row" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text);">
+        <input type="checkbox" id="batch-delete-source" style="width: 16px; height: 16px; cursor: pointer;">
+        <span>同时删除本地源文件（移动至系统回收站，可恢复）</span>
+      </label>
+      <div id="batch-delete-tip" style="margin-top: 10px; color: var(--text-faint); font-size: 12px;">
+        删除后可在回收站恢复列表项；源文件删除走系统回收站
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="batch-delete">取消</button>
+      <button class="btn primary" id="btn-confirm-batch-delete" style="background: #f44336; border-color: #f44336;">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重复歌曲检查弹窗 -->
+<div id="dedupe-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="dedupe"></div>
+  <div class="modal-box" style="width: 640px; max-width: 92vw;">
+    <div class="modal-head">
+      <span>检查重复歌曲</span>
+      <button class="modal-close" data-close="dedupe">×</button>
+    </div>
+    <div class="modal-body" style="min-height: 200px;">
+      <div style="margin-bottom: 10px; color: var(--text-dim); font-size: 12px; line-height: 1.7;">
+        检查方式：<b style="color:var(--text)">同名·歌手匹配</b>（歌名一致、歌手列全或列简都算同一人，Live/Remix 等版本标记保留；时长已知时再按时长分版本）·
+        <b style="color:var(--text)">文件完全相同</b>（大小 + MD5 一致）。
+        每组默认勾选除第一首外的条目，确认删除可一并移除源文件。
+      </div>
+      <div id="dedupe-banner" class="dedupe-banner" hidden></div>
+      <div id="dedupe-results" class="dedupe-results"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="dedupe">关闭</button>
+      <button class="btn primary" id="btn-dedupe-delete" style="background: #f44336; border-color: #f44336;">删除勾选的歌曲</button>
+    </div>
+  </div>
+</div>
+
+<!-- 音乐库合并弹窗 -->
+<div id="merge-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="merge"></div>
+  <div class="modal-box" style="width: 720px; max-width: 94vw;">
+    <div class="modal-head">
+      <span>音乐库合并</span>
+      <button class="modal-close" data-close="merge">×</button>
+    </div>
+    <div class="modal-body" style="min-height: 220px;">
+      <div style="margin-bottom: 10px; color: var(--text-dim); font-size: 12px; line-height: 1.7;">
+        把两个音乐文件夹合并为一个：<b style="color:var(--text)">重叠的歌曲</b>只保留一份（自动选信息更全/更新的那份，可手动改），
+        并把两边缺失的歌名/歌手/专辑<b style="color:var(--text)">互补合并</b>进保留方；独有的歌曲全部复制到目标文件夹。源文件夹不做任何改动。
+      </div>
+      <div class="merge-pickers">
+        <div class="merge-picker-row">
+          <span class="merge-picker-label">音乐库 A</span>
+          <select id="merge-src-a" class="merge-select"></select>
+          <button class="btn ghost" id="merge-browse-a">浏览…</button>
+        </div>
+        <div class="merge-picker-row">
+          <span class="merge-picker-label">音乐库 B</span>
+          <select id="merge-src-b" class="merge-select"></select>
+          <button class="btn ghost" id="merge-browse-b">浏览…</button>
+        </div>
+        <div class="merge-picker-row">
+          <span class="merge-picker-label">合并到</span>
+          <select id="merge-target" class="merge-select"></select>
+          <button class="btn ghost" id="merge-browse-target">浏览…</button>
+        </div>
+        <div class="merge-actions">
+          <button class="btn primary" id="btn-merge-analyze">分析重叠歌曲</button>
+        </div>
+      </div>
+      <div id="merge-summary" class="dedupe-summary" hidden></div>
+      <div id="merge-results" class="dedupe-results"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="merge">关闭</button>
+      <button class="btn primary" id="btn-merge-execute" disabled>执行合并</button>
+    </div>
+  </div>
+</div>
+
+<!-- 均衡器 / 音频曲线 -->
+<div id="eq-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="eq"></div>
+  <div class="modal-box" style="width: 700px; max-width: 94vw;">
+    <div class="modal-head">
+      <span>均衡器 · 音频曲线</span>
+      <button class="modal-close" data-close="eq">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="eq-toolbar">
+        <label class="eq-switch"><input type="checkbox" id="eq-enable"> <span>启用均衡器</span></label>
+        <div class="eq-presets" title="鼠标悬停此处，滚动滚轮即可快速切换音效">
+          <span>预设</span>
+          <select id="eq-preset">
+            <optgroup label="品牌音效风格">
+              <option value="harman">哈曼卡顿</option>
+              <option value="beats">Beats 重低音</option>
+              <option value="bose">Bose 温暖</option>
+              <option value="bo">B&O 通透</option>
+              <option value="sennheiser">森海塞尔 自然</option>
+              <option value="sony">索尼 动感</option>
+              <option value="apple">苹果 清爽</option>
+            </optgroup>
+            <optgroup label="经典预设">
+              <option value="flat">平直</option>
+              <option value="pop">流行</option>
+              <option value="rock">摇滚</option>
+              <option value="classical">古典</option>
+              <option value="jazz">爵士</option>
+              <option value="vocal">人声</option>
+              <option value="bass">低音增强</option>
+              <option value="treble">高音增强</option>
+              <option value="electronic">电子</option>
+            </optgroup>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+      </div>
+      <div class="eq-canvas-wrap">
+        <canvas id="eq-canvas" width="640" height="180"></canvas>
+      </div>
+      <div class="eq-bands" id="eq-bands"></div>
+      <div class="eq-preamp">
+        <span class="eq-label">前置增益</span>
+        <input type="range" id="eq-preamp" min="-12" max="12" step="0.5" value="0" title="整体增益，提升后配合音量避免削波（右键单击归零）">
+        <span id="eq-preamp-val" class="eq-val">0.0 dB</span>
+      </div>
+      <div class="eq-hint">曲线为各频段叠加后的总频响；改动即时生效并记忆。拨条上右键单击可把该频段归零（前置增益同理）。参考 Web Audio 均衡器通行做法（BiquadFilter + getFrequencyResponse）实现。</div>
+    </div>
+  </div>
+</div>
+
+<!-- 刷新结果弹窗 -->
+<div id="refresh-result-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="refresh-result"></div>
+  <div class="modal-box" style="width: 460px; max-height: 80vh; display: flex; flex-direction: column;">
+    <div class="modal-head">
+      <span id="refresh-result-title">刷新结果</span>
+      <button class="modal-close" data-close="refresh-result">×</button>
+    </div>
+    <div class="modal-body" style="overflow-y: auto;">
+      <div id="refresh-result-summary" style="margin-bottom: 16px; font-size: 13.5px; line-height: 1.8;"></div>
+      <div id="refresh-removed-section">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; cursor: pointer;" id="refresh-removed-toggle">
+          <span style="color: var(--text); font-size: 13px; font-weight: 600;">已移除的歌曲</span>
+          <svg id="refresh-removed-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" style="transition: transform 0.2s; transform: rotate(180deg);"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div id="refresh-removed-list" style="max-height: 200px; overflow-y: auto; background: var(--bg); border-radius: 6px; padding: 8px; font-size: 12px; color: var(--text-dim); line-height: 1.6;"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" data-close="refresh-result">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑歌曲信息弹窗 -->
+<div id="edit-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="edit"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="edit-modal-title">修改歌曲信息</span>
+      <button class="modal-close" data-close="edit">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">歌曲名称</div>
+        <input type="text" id="edit-title-input" class="setting-input" placeholder="请输入歌曲名称">
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">歌手</div>
+        <input type="text" id="edit-artist-input" class="setting-input" placeholder="请输入歌手">
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">专辑</div>
+        <input type="text" id="edit-album-input" class="setting-input" placeholder="请输入专辑">
+      </div>
+      <div class="setting-group">
+        <label class="dlm-item dlm-check" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="edit-rename-file" style="width:16px;height:16px;cursor:pointer;">
+          <span style="font-size:13px;">同时把文件名改为「歌手 - 标题」</span>
+        </label>
+        <div style="font-size:12px;opacity:.55;margin-top:6px;line-height:1.5;">默认勾选并记住你的选择。保存会把歌名/歌手/专辑写入音乐文件标签，并同步重命名文件（重启后依然生效）</div>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="edit">取消</button>
+      <button class="btn primary" id="btn-save-edit">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 自定义确认弹窗 -->
+<div id="confirm-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="confirm"></div>
+  <div class="modal-box confirm-box">
+    <div class="confirm-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+        <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="confirm-content">
+      <div class="confirm-title" id="confirm-title">确认操作</div>
+      <div class="confirm-text" id="confirm-text"></div>
+      <label class="confirm-extra" id="confirm-extra" hidden>
+        <input type="checkbox" id="confirm-extra-check">
+        <span id="confirm-extra-label"></span>
+      </label>
+      <div class="confirm-format" id="confirm-format-wrap" hidden>
+        <label for="confirm-format-select">文件名格式：</label>
+        <select id="confirm-format-select"></select>
+      </div>
+    </div>
+    <div class="confirm-btns">
+      <button class="btn ghost" id="confirm-cancel">取消</button>
+      <button class="btn primary" id="confirm-ok">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 三合一：将歌曲歌手专辑名同步至源文件名（补专辑 + 同步文件名 + 写文件标签） -->
+<div id="sync-sources-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="sync-sources"></div>
+  <div class="modal-box" style="width: 600px;">
+    <div class="modal-head">
+      <span>将歌曲歌手专辑名同步至源文件名</span>
+      <button class="modal-close" data-close="sync-sources">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="ss-intro">默认只处理右键选中的这一首；勾选左下角「修改全部歌曲」后处理全部歌曲。可多选操作，只改曲库信息、文件名或文件标签，不移动、不删除、不转码音频。</div>
+      <label class="ss-opt">
+        <input type="checkbox" id="ss-fill-album">
+        <span class="ss-opt-txt"><b>补全缺失专辑</b><em id="ss-fill-desc"></em></span>
+      </label>
+      <label class="ss-opt">
+        <input type="checkbox" id="ss-rename">
+        <span class="ss-opt-txt"><b>同步至源文件名</b><em id="ss-rename-desc"></em></span>
+      </label>
+      <div class="ss-format" id="ss-format-wrap">
+        <label for="ss-format-select">命名顺序：</label>
+        <select id="ss-format-select"></select>
+      </div>
+      <label class="ss-opt">
+        <input type="checkbox" id="ss-write-tags">
+        <span class="ss-opt-txt"><b>写入文件标签</b><em id="ss-write-desc"></em></span>
+      </label>
+      <div class="ss-note">写标签后资源管理器按 F5 可见「标题 / 参与创作的艺术家 / 专辑」；同步文件名前会生成「旧名 → 新名」清单，方便核对或还原。</div>
+    </div>
+    <div class="modal-foot">
+      <label class="ss-scope" id="ss-scope-wrap" title="不勾选＝只处理右键选中的这一首；勾选＝处理曲库里全部候选歌曲">
+        <input type="checkbox" id="ss-scope-all">
+        <span>修改全部歌曲</span>
+      </label>
+      <button class="btn ghost" data-close="sync-sources">取消</button>
+      <button class="btn primary" id="ss-apply">开始同步</button>
+    </div>
+  </div>
+</div>
+
+<!-- 歌单来源 / 刷新顺序窗口 -->
+<div id="playlist-source-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="playlist-source"></div>
+  <div class="modal-box" style="width: 680px; max-height: 92vh;">
+    <div class="modal-head">
+      <span>🌐 歌单来源 · 抓取 / 刷新顺序</span>
+      <button class="modal-close" data-close="playlist-source">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="pl-src-intro">
+        <div class="pl-src-intro-t">怎么拿到歌单链接</div>
+        <ul>
+          <li><b>QQ音乐</b>：APP 里打开歌单 → 分享 → 复制链接（<code>y.qq.com/n/ryqq/playlist/…</code> 或 <code>…songlist?id=…</code>），也可以只填歌单数字 ID。</li>
+          <li><b>网易云音乐</b>：APP 里打开歌单 → 分享 → 复制链接（<code>music.163.com/…/playlist?id=…</code>）。</li>
+          <li>带文字说明的分享口令也能直接粘，链接会自动抽出来。</li>
+        </ul>
+        <div class="pl-src-intro-t">填进来之后</div>
+        <ul>
+          <li>点右边 <b>刷新</b>（或按回车）就按这个链接重抓一遍，<b>不改你当前的排序方式</b>；歌单在平台上更新了，回这个窗口再点一次就行。</li>
+          <li>链接会记住，<b>重启不会清空</b>；同一平台换歌单，直接改这一行。</li>
+        </ul>
+      </div>
+
+      <div class="pl-src-rows">
+        <div class="pl-src-row" data-row="qq">
+          <div class="pl-src-head">
+            <span class="pl-src-label"><i class="pl-src-dot qq"></i>QQ音乐</span>
+            <span class="pl-src-state" data-state="qq">未填写链接</span>
+          </div>
+          <div class="pl-src-line">
+            <input class="pl-src-input" data-key="qq" type="text" spellcheck="false"
+                   placeholder="粘贴 QQ音乐歌单链接或数字 ID，例如 https://y.qq.com/n/ryqq/playlist/8123456789">
+            <button class="pl-src-btn" data-key="qq" title="按这个链接刷新歌单顺序">
+              <svg class="pl-src-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.03"/><path d="M20.9 4.1v5.2h-5.2"/></svg><span class="pl-src-btn-t">刷新</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pl-src-row" data-row="netease">
+          <div class="pl-src-head">
+            <span class="pl-src-label"><i class="pl-src-dot netease"></i>网易云音乐</span>
+            <span class="pl-src-state" data-state="netease">未填写链接</span>
+          </div>
+          <div class="pl-src-line">
+            <input class="pl-src-input" data-key="netease" type="text" spellcheck="false"
+                   placeholder="粘贴网易云歌单链接，例如 https://music.163.com/#/playlist?id=123456789">
+            <button class="pl-src-btn" data-key="netease" title="按这个链接刷新歌单顺序">
+              <svg class="pl-src-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.03"/><path d="M20.9 4.1v5.2h-5.2"/></svg><span class="pl-src-btn-t">刷新</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pl-src-row" data-row="auto">
+          <div class="pl-src-head">
+            <span class="pl-src-label"><i class="pl-src-dot auto"></i>其他 / 自动识别</span>
+            <span class="pl-src-state" data-state="auto">未填写链接</span>
+          </div>
+          <div class="pl-src-line">
+            <input class="pl-src-input" data-key="auto" type="text" spellcheck="false"
+                   placeholder="不确定是哪个平台就粘这里，会自动识别（QQ / 网易云）">
+            <button class="pl-src-btn" data-key="auto" title="按这个链接刷新歌单顺序">
+              <svg class="pl-src-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.03"/><path d="M20.9 4.1v5.2h-5.2"/></svg><span class="pl-src-btn-t">刷新</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content: space-between; align-items: center;">
+      <span class="pl-src-foot-hint">只重抓顺序：本地没有的歌生成灰色占位，已下载的不会动 · 回车 = 刷新当前行</span>
+      <button class="btn ghost" data-close="playlist-source">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 补全歌曲信息（歌名 / 歌手 / 专辑，联网匹配后预览应用） -->
+<div id="complete-info-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="complete-info"></div>
+  <div class="modal-box" style="width: 660px;">
+    <div class="modal-head">
+      <span>🏷 补全歌曲信息</span>
+      <button class="modal-close" data-close="complete-info">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="ci-status" id="ci-status">正在联网匹配…</div>
+      <div class="ci-rows">
+        <div class="ci-row">
+          <label class="ci-check"><input type="checkbox" data-ci-check="title"><span>歌名</span></label>
+          <span class="ci-cur" data-ci-cur="title"></span>
+          <span class="ci-arrow">→</span>
+          <input class="ci-new" data-ci-new="title" type="text" placeholder="留空则不修改">
+        </div>
+        <div class="ci-row">
+          <label class="ci-check"><input type="checkbox" data-ci-check="artist"><span>歌手</span></label>
+          <span class="ci-cur" data-ci-cur="artist"></span>
+          <span class="ci-arrow">→</span>
+          <input class="ci-new" data-ci-new="artist" type="text" placeholder="留空则不修改">
+        </div>
+        <div class="ci-row">
+          <label class="ci-check"><input type="checkbox" data-ci-check="album"><span>专辑</span></label>
+          <span class="ci-cur" data-ci-cur="album"></span>
+          <span class="ci-arrow">→</span>
+          <input class="ci-new" data-ci-new="album" type="text" placeholder="留空则不修改">
+        </div>
+      </div>
+      <div class="ci-albums" id="ci-albums" hidden>
+        <div class="ci-albums-t">这首歌所属的其他专辑（点一下替换上面的建议值）</div>
+        <div class="ci-album-list" id="ci-album-list"></div>
+      </div>
+      <div class="ci-note" id="ci-note"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="ci-meta" id="ci-meta"></span>
+      <label class="ci-write" title="把结果写进音频文件本身的标签，资源管理器「标题 / 参与创作的艺术家 / 专辑」列会同步显示">
+        <input type="checkbox" id="ci-write-file" checked>
+        <span>写入文件标签</span>
+      </label>
+      <button class="btn ghost" data-close="complete-info">取消</button>
+      <button class="btn primary" id="ci-apply" disabled>应用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 输入对话框 -->
+<div id="input-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="input"></div>
+  <div class="modal-box" style="width: 560px;">
+    <div class="modal-head">
+      <span id="input-title">请输入</span>
+      <button class="modal-close" data-close="input">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="input-desc" style="color: var(--text-secondary); margin-bottom: 12px; font-size: 13px; line-height: 1.6; display: none;"></div>
+      <textarea id="input-field" rows="3" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; resize: vertical; box-sizing: border-box; outline: none;"></textarea>
+      <div style="display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end;">
+        <button class="btn ghost" id="input-cancel">取消</button>
+        <button class="btn" id="input-ok">确定</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 手动导入歌词弹窗 -->
+<div id="lyrics-import-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="lyrics-import"></div>
+  <div class="modal-box" style="width: 560px;">
+    <div class="modal-head">
+      <span>手动导入歌词</span>
+      <button class="modal-close" data-close="lyrics-import">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">粘贴歌词文本（支持 LRC 格式或纯文本）</div>
+        <textarea id="lyrics-import-text" class="setting-input" style="height: 280px; resize: vertical; font-family: monospace; font-size: 12px; line-height: 1.6;" placeholder="[00:00.00]歌词内容&#10;[00:05.00]第二行歌词&#10;&#10;或者直接粘贴纯文本歌词"></textarea>
+      </div>
+      <div class="setting-label" style="margin-top: 10px; color: var(--text-faint); font-size: 11px;">
+        提示：支持带时间轴的 LRC 格式，也支持纯文本（纯文本会按行显示，无时间轴）
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="lyrics-import">取消</button>
+      <button class="btn primary" id="btn-save-lyrics-import">保存歌词</button>
+    </div>
+  </div>
+</div>
+
+<!-- 音频输出设备选择菜单 -->
+<div id="audio-device-menu" class="audio-device-menu" hidden>
+  <div class="audio-device-head">
+    <span>选择音频输出设备</span>
+    <button class="audio-device-refresh" id="btn-refresh-audio-devices" title="刷新设备列表">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6M1 20v-6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="audio-device-list" id="audio-device-list">
+    <div class="audio-device-empty">正在检测设备...</div>
+  </div>
+</div>
+
+<!-- 添加自定义电台弹窗 -->
+<div id="radio-add-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="radio-add"></div>
+  <div class="modal-box" style="width: 480px;">
+    <div class="modal-head">
+      <span id="radio-add-title">添加自定义电台</span>
+      <button class="modal-close" data-close="radio-add">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">电台名称</div>
+        <input type="text" id="radio-add-name" class="setting-input" placeholder="请输入电台名称">
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">分类</div>
+        <select id="radio-add-category" class="setting-input">
+          <option value="国内">国内</option>
+          <option value="国外">国外</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">子分类</div>
+        <select id="radio-add-subcat" class="setting-input">
+          <option value="音乐">音乐</option>
+          <option value="新闻">新闻</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">流地址（支持 m3u8 / mp3 / aac）</div>
+        <input type="text" id="radio-add-url" class="setting-input" placeholder="http://example.com/stream.m3u8">
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">描述（可选）</div>
+        <input type="text" id="radio-add-desc" class="setting-input" placeholder="电台描述">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="radio-add">取消</button>
+      <button class="btn primary" id="btn-save-radio-add">添加电台</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量转格式弹窗 -->
+<div id="convert-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="convert"></div>
+  <div class="modal-box" style="width: 460px;">
+    <div class="modal-head">
+      <span>批量转换格式</span>
+      <button class="modal-close" data-close="convert">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">目标格式</div>
+        <select id="convert-format" class="setting-input">
+          <option value="mp3">MP3 (320kbps)</option>
+          <option value="flac">FLAC (无损)</option>
+          <option value="wav">WAV (无损)</option>
+          <option value="aac">AAC (256kbps)</option>
+          <option value="m4a">M4A (256kbps)</option>
+          <option value="ogg">OGG (320kbps)</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">输出路径</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="convert-output-dir" class="setting-input" placeholder="留空则保存到源文件同目录">
+          <button class="btn ghost" id="btn-convert-browse" style="padding:0 12px;flex-shrink:0;">浏览</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);">
+          <input type="checkbox" id="convert-replace" style="width:16px;height:16px;">
+          转换后删除源文件（替换原文件）
+        </label>
+      </div>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:8px;">
+        将转换播放列表中所有非目标格式的音频文件，已匹配格式的自动跳过。
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="convert">取消</button>
+      <button class="btn primary" id="btn-start-convert">开始转换</button>
+    </div>
+  </div>
+</div>
+
+<!-- 电台右键菜单 -->
+<div id="radio-context-menu" class="ctx-menu" hidden style="position: fixed; min-width: 160px;">
+  <div class="ctx-item" data-action="radio-fav">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="ctx-fav-label">收藏电台</span>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="radio-edit">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    编辑电台
+  </div>
+  <div class="ctx-item" data-action="radio-bg">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="13.5" cy="6.5" r="2.5" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="10.5" r="2.5" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="7.5" r="2.5" stroke="currentColor" stroke-width="2"/><circle cx="6.5" cy="12.5" r="2.5" stroke="currentColor" stroke-width="2"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.8-10-8.8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    自定义卡片背景
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="radio-delete" style="color: #f44336;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    删除电台
+  </div>
+</div>
+
+<!-- 自定义卡片背景弹窗 -->
+<div id="radio-bg-modal" class="modal" hidden>
+  <div class="modal-mask" data-close="radio-bg"></div>
+  <div class="modal-box" style="width: 400px;">
+    <div class="modal-head">
+      <span>自定义卡片背景</span>
+      <button class="modal-close" data-close="radio-bg">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">选择背景颜色</div>
+        <div class="bg-color-picker">
+          <button class="bg-color-btn" data-color="#1a1d26" style="background:#1a1d26" title="默认深色"></button>
+          <button class="bg-color-btn" data-color="#2d1b1b" style="background:#2d1b1b" title="暗红"></button>
+          <button class="bg-color-btn" data-color="#1b2d1b" style="background:#1b2d1b" title="暗绿"></button>
+          <button class="bg-color-btn" data-color="#1b1b2d" style="background:#1b1b2d" title="暗蓝"></button>
+          <button class="bg-color-btn" data-color="#2d2d1b" style="background:#2d2d1b" title="暗黄"></button>
+          <button class="bg-color-btn" data-color="#2d1b2d" style="background:#2d1b2d" title="暗紫"></button>
+          <button class="bg-color-btn" data-color="#1b2d2d" style="background:#1b2d2d" title="暗青"></button>
+          <button class="bg-color-btn" data-color="#3d2b1f" style="background:#3d2b1f" title="棕色"></button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">自定义颜色</div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="color" id="radio-bg-custom" value="#1a1d26" style="width: 50px; height: 32px; border: none; background: none; cursor: pointer;">
+          <button class="btn ghost" id="btn-apply-custom-bg">应用自定义颜色</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <button class="btn ghost" id="btn-reset-bg" style="width: 100%;">恢复默认背景</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 海报底色模式（2026-11-19）：播放时把模糊海报罩在全窗口上（低透明度氛围光），
+     歌单页等背景色随之变为海报主色。纯氛围层：pointer-events 穿透，z-index 低于所有浮层菜单。
+     开关与强度在 设置 → 界面外观。 -->
+<div id="poster-bg" hidden>
+  <div class="poster-bg-layer" id="poster-bg-a"></div>
+  <div class="poster-bg-layer" id="poster-bg-b"></div>
+</div>
+
+<!-- 全屏播放详情页（QQ音乐风格） -->
+<div id="player-full" class="player-full" hidden>
+  <!-- 模糊背景（双层交叉淡入淡出） -->
+  <div class="pf-bg pf-bg-a" id="pf-bg-a"></div>
+  <div class="pf-bg pf-bg-b" id="pf-bg-b"></div>
+  <div class="pf-mask"></div>
+
+  <!-- 顶部栏（沉浸模式下鼠标静止 3 秒会自动淡出） -->
+  <div class="pf-top">
+    <!-- 返回按钮放顶部栏：原来挂在封面容器里，窄窗口封面被隐藏时它也跟着消失了，只能靠 Esc -->
+    <button class="pf-back-btn" id="pf-close" title="返回（Esc / 鼠标侧键）">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+  </div>
+
+  <!-- 主体：封面 + 歌词 -->
+  <div class="pf-body">
+    <!-- 左侧：封面 + 歌名/歌手/专辑（网易云式：信息贴在封面下方） -->
+    <div class="pf-cover-col">
+      <div class="pf-cover-wrap">
+        <div class="pf-cover-ring">
+          <div class="pf-cover" id="pf-cover">
+            <span class="pf-cover-fallback">♪</span>
+          </div>
+          <div class="pf-cover-center"></div>
+        </div>
+      </div>
+      <div class="pf-meta">
+        <div class="pf-title" id="pf-title">未在播放</div>
+        <div class="pf-meta-sub">
+          <button class="pf-artist" id="pf-artist" title="">—</button>
+          <span class="pf-meta-dot">·</span>
+          <button class="pf-album" id="pf-album" title="">—</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：歌词 -->
+    <div class="pf-lyrics-wrap">
+      <!-- 只放「原文 / 翻译」两个开关，整条悬浮在歌词区上方（不再压住第一行歌词）；
+           歌词速度微调挪到右侧竖向轨道，和行距滑块放在一起 -->
+      <div class="pf-lyrics-toolbar">
+        <div class="pf-lyrics-modes">
+          <button class="pf-lyrics-mode active" data-mode="orig">原文</button>
+          <button class="pf-lyrics-mode" data-mode="trans">翻译</button>
+        </div>
+        <!-- 逐字 / 整行：一键切换，偏好会记住；默认整行一起点亮 -->
+        <button class="pf-lyrics-word" id="pf-word-toggle" title="逐字点亮（卡拉OK）" aria-pressed="false">
+          <span class="pf-word-dot"></span>逐字
+        </button>
+      </div>
+      <div class="pf-lyrics" id="pf-lyrics">
+        <div class="pf-lyric-empty">暂无歌词</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部控制栏 -->
+  <div class="pf-bottom">
+    <div class="pf-progress">
+      <span class="pf-time" id="pf-cur">0:00</span>
+      <div class="pf-seek" id="pf-seek">
+        <div class="pf-seek-fill" id="pf-seek-fill"></div>
+        <div class="pf-seek-knob" id="pf-seek-knob"></div>
+      </div>
+      <span class="pf-time" id="pf-dur">0:00</span>
+    </div>
+    <!-- 控制栏：播放/歌单类按钮全部合成一组居中，播放键左右各 3 个，严格对称才落在窗口几何中心。
+         右侧只剩「收藏 + 音量组」。左侧等宽配重由 CSS 的 .pf-controls::before 撑起，
+         不要再往左边塞按钮，否则播放键会被顶偏（E2E 断言 ±2px）。 -->
+    <div class="pf-controls">
+      <div class="pf-center">
+        <button class="pf-ctl" id="pf-mode" title="播放模式"></button>
+        <button class="pf-ctl pf-playlist-btn" id="pf-playlist" title="添加到歌单">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        </button>
+        <button class="pf-ctl" id="pf-prev" title="上一首">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 5h2v14H6zM20 5v14L9.5 12z"/>
+          </svg>
+        </button>
+        <button class="pf-ctl pf-play" id="pf-play" title="播放/暂停">
+          <svg id="pf-ic-play" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 4.5v15l13-7.5z"/>
+          </svg>
+          <svg id="pf-ic-pause" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+            <path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/>
+          </svg>
+        </button>
+        <button class="pf-ctl" id="pf-next" title="下一首">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/>
+          </svg>
+        </button>
+        <button class="pf-ctl" id="pf-queue" title="播放列表">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M4 6h16M4 11h16M4 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M17 14l4 2.5-4 2.5z" fill="currentColor"/>
+          </svg>
+        </button>
+        <button class="pf-ctl" id="pf-eq" title="均衡器 / 音频曲线">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
+            <path d="M1 14h6M9 8h6M17 16h6" stroke-width="2"/>
+          </svg>
+        </button>
+      </div>
+      <div class="pf-side pf-side-right">
+        <button class="pf-ctl pf-fav-btn" id="pf-fav" title="收藏">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        </button>
+        <div class="pf-vol-wrap">
+          <button class="pf-ctl" id="pf-mute" title="静音（右键切换输出设备）">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+              <path id="pf-vol-wave" d="M16 8.5a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <input type="range" class="pf-volume" id="pf-volume" min="0" max="100" value="80">
+          <!-- 沉浸全屏：右下角，和网易云一致；真全屏时隐藏标题栏和窗口按钮 -->
+          <button class="pf-ctl pf-fs-btn" id="pf-fs" title="沉浸全屏（F11）">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧歌词间距调节滑块 -->
+  <div class="pf-spacing-panel">
+    <div class="pf-spacing-item">
+      <span class="pf-spacing-label">单</span>
+      <input type="range" class="pf-vslider" id="pf-spacing-single" min="0" max="2" step="0.05" value="1">
+      <span class="pf-spacing-val" id="pf-spacing-single-val">1.0</span>
+    </div>
+    <div class="pf-spacing-item">
+      <span class="pf-spacing-label">双</span>
+      <input type="range" class="pf-vslider" id="pf-spacing-double" min="1" max="3" step="0.05" value="1.25">
+      <span class="pf-spacing-val" id="pf-spacing-double-val">1.3</span>
+    </div>
+    <!-- 歌词速度微调：竖向排列，+ 提前 / − 延后，点中间数值归零（每首歌各自记忆，不再挂「速」字标签） -->
+    <div class="pf-spacing-item">
+      <div class="lyric-offset vertical" title="本首歌词同步微调（每首歌单独记忆）：+ 让歌词提前，− 让歌词延后，点数值归零">
+        <button class="lo-btn" data-lo="1" title="歌词提前 0.1 秒">+</button>
+        <span class="lo-val" data-lo-val title="点击归零">0.0s</span>
+        <button class="lo-btn" data-lo="-1" title="歌词延后 0.1 秒">−</button>
+      </div>
+    </div>
+    <!-- 歌词字号：A+ 放大 / A− 缩小，点数值恢复默认 -->
+    <div class="pf-spacing-item">
+      <div class="lyric-offset vertical" title="歌词字体大小：A+ 放大，A− 缩小，点数值恢复默认 1.0×">
+        <button class="lo-btn" data-fs="1" title="歌词放大">A+</button>
+        <span class="lo-val" data-fs-val title="点击恢复默认 1.0×">1.0×</span>
+        <button class="lo-btn" data-fs="-1" title="歌词缩小">A−</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="window-controls">
+  <button id="btn-pin" class="win-ctrl" title="窗口置顶">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+  </button>
+  <button id="win-min" class="win-ctrl" title="最小化">
+    <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+  </button>
+  <button id="win-max" class="win-ctrl" title="最大化">
+    <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+  </button>
+  <button id="win-close" class="win-ctrl win-close" title="关闭">
+    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<script src="mock-native.js"></script>
+<script src="../www/native/bridge.js"></script>
+<script src="../www/app.js"></script>
+<script>
+window.__errs = [];
+window.addEventListener('error', function(e){ window.__errs.push(String(e.message||e.type)); });
+window.addEventListener('unhandledrejection', function(e){ window.__errs.push('rej:' + (e.reason && e.reason.message || e.reason)); });
+setTimeout(function(){
+  var de = document.documentElement;
+  de.setAttribute('data-err', window.__errs.join(' | ') || 'none');
+  var list = document.getElementById('track-list') || document.querySelector('.track-list');
+  var rows = document.querySelectorAll('.track-row').length;
+  de.setAttribute('data-rows', String(rows));
+  de.setAttribute('data-ready', '1');
+}, 2500);
+</script>
+<script>
+window.__errs = window.__errs || [];
+setTimeout(function(){
+  try {
+    var row = document.querySelector('.track-row');
+    if (row) row.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+  } catch(e){ window.__errs.push('click:'+e.message); }
+}, 1200);
+setTimeout(function(){
+  var a = document.querySelector('audio');
+  var de = document.documentElement;
+  de.setAttribute('data-audiosrc', a ? (a.src || '(empty)').slice(0, 160) : 'no-audio-element');
+  de.setAttribute('data-mediasession', (typeof navigator.mediaSession !== 'undefined' && navigator.mediaSession.setActionHandler) ? 'stubbed' : 'missing');
+  de.setAttribute('data-err2', window.__errs.join(' | ') || 'none');
+}, 2600);
+</script>
+<script>
+setTimeout(function(){
+  var de = document.documentElement;
+  try {
+    var a = new Audio();
+    a.src = 'file:///' + encodeURI('/内部存储/Music/周杰伦/晴天.mp3').replace(/#/g,'%23');
+    de.setAttribute('data-src1', a.src);
+    var b = new Audio();
+    b.src = 'file:///' + encodeURI('/内部存储/Music/A#B/Cover 1.mp3');
+    de.setAttribute('data-src2', b.src);
+  } catch(e){ de.setAttribute('data-src-err', e.message); }
+}, 2200);
+</script>
+</body>
+</html>
+
+
+

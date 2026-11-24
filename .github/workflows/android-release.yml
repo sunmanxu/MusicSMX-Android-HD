@@ -1,0 +1,60 @@
+name: Android Release
+
+# 只在推送 `android-v*` tag 时构建并发布 APK。
+# 桌面版仓库用的是 `v*`，两边命名空间天然不冲突，不会互相误触发。
+on:
+  push:
+    tags:
+      - 'android-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: 准备 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装依赖并同步渲染层
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: 构建 Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --console=plain
+
+      - name: 取出版本号并重命名
+        id: ver
+        run: |
+          VER=$(grep -oP 'versionName\s+"\K[^"]+' android/app/build.gradle | head -1)
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          cp android/app/build/outputs/apk/debug/app-debug.apk "MusicSMX-${VER}-debug.apk"
+          ls -lh MusicSMX-${VER}-debug.apk
+
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "MusicSMX Android ${{ steps.ver.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          files: MusicSMX-${{ steps.ver.outputs.version }}-debug.apk
+          generate_release_notes: true

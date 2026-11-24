@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 1.0.16：与歌单页左上角 .logo-icon 同色（#1A1D26），S 缩小居中 -->
+    <color name="ic_launcher_background">#1A1D26</color>
+</resources>

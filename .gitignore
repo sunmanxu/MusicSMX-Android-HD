@@ -1,0 +1,32 @@
+# ---------------- 依赖 / 构建产物（可重建，别提交） ----------------
+node_modules/
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+
+# cap sync 生成的文件：克隆后跑一次 `npx cap sync android` 就会长回来
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# ---------------- 二进制成品 ----------------
+# APK/AAB 不进仓库（20 多个版本就 100MB+），发布走 GitHub Releases
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# ---------------- 调试截图 / 一次性产物（test/ 里 200MB+） ----------------
+test/*.png
+test/*.jpg
+test/*.jpeg
+test/*.webp
+
+# ---------------- 杂项 ----------------
+*.log
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,15 @@
+{
+  "appId": "cn.sunmanxu.musicsmx",
+  "appName": "MusicSMX",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": true,
+    "useLegacyBridge": false
+  },
+  "plugins": {}
+}
