@@ -46,6 +46,8 @@ Electron 外壳整体重写成 Android 原生桥。策略与验收标准见桌�
   ```
 
   本机 git 在 `C:\Program Files\Git\cmd`，凭据走 Git Credential Manager，首次 push 会弹浏览器登录 GitHub。
+  直连 `github.com:443` 有时会失败（`api.github.com` 却正常），此时走本机代理：
+  `git -c http.proxy=http://127.0.0.1:7890 push`
 
 - 渲染层同步（从桌面版拉 `app.js` / `style.css`，默认只体检不写盘）：
   ```powershell
