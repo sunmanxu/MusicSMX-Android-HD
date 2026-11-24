@@ -26,7 +26,7 @@ jobs:
       - name: 准备 Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - name: 准备 Android SDK（用镜像自带的，缺啥补啥）
