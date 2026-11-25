@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.27-android',
+    version: '1.0.28-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -2465,6 +2465,33 @@
     // 播放模式顺序改成 列表循环 → 随机 → 单曲循环（1.0.27）
     installModeCycleOrder();
     [500, 1200, 2400, 4000].forEach(function (ms) { setTimeout(installModeCycleOrder, ms); });
+    // 左上角 logo 点开安卓版 GitHub 仓库（1.0.28）
+    installLogoGithub();
+    [500, 1500, 3000].forEach(function (ms) { setTimeout(installLogoGithub, ms); });
+  }
+
+  // ---------------- 1.0.28：左上角 logo → 安卓版仓库 ----------------
+  // app.js 里给 #logo-home 绑的是桌面版仓库（https://github.com/sunmanxu/MusicSMX），
+  // 安卓版点进去会跑到隔壁仓库；这里克隆节点换掉那个 handler，改跳安卓版仓库。
+  const ANDROID_REPO_URL = 'https://github.com/sunmanxu/MusicSMX-Android-HD';
+  function installLogoGithub() {
+    try {
+      const logo = document.getElementById('logo-home');
+      if (!logo || logo.dataset.mbRepoBound === '1') return;
+      const clone = logo.cloneNode(true);
+      clone.dataset.mbRepoBound = '1';
+      clone.title = '打开 GitHub 上的安卓版仓库';
+      clone.style.cursor = 'pointer';
+      clone.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { if (typeof toast === 'function') toast('正在打开安卓版 GitHub 仓库'); } catch (_) {}
+        nativeCall('openExternal', { url: ANDROID_REPO_URL }).catch(function () {
+          nativeCall('updateOpenPage', { url: ANDROID_REPO_URL }).catch(function () {});
+        });
+      });
+      if (logo.parentNode) logo.parentNode.replaceChild(clone, logo);
+    } catch (e) {}
   }
 
   // ---------------- 1.0.27：播放模式三态顺序 ----------------

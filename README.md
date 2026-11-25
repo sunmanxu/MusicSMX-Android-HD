@@ -1248,3 +1248,22 @@ Capacitor 的插件方法是排队执行的 → 所有网络请求实际是**串
 | 播放页 `#pf-mode` | 走同一套顺序（`one → list`） |
 | 杀进程重启 | 模式正确恢复（`list` + 「播放模式：列表循环」） |
 | 版本角标 | `安卓HD 1.0.27` |
+
+## 1.0.28（2026-11-25）
+
+**① 左上角 logo → 安卓版仓库**
+
+`app.js` 里给 `#logo-home` 绑的是桌面版仓库 `https://github.com/sunmanxu/MusicSMX`（`mb.openExternal`），
+安卓版点进去会跑到隔壁仓库。这一版在 `bridge.js` 里克隆 `#logo-home` 换掉那个 handler，
+改跳 **`https://github.com/sunmanxu/MusicSMX-Android-HD`**，并用 `nativeCall('openExternal')` 直接拉起系统浏览器
+（不走 `mb.openExternal` 的那层"确认跳转"弹窗，点一下就开）。悬停标题改成「打开 GitHub 上的安卓版仓库」。
+
+**② 仓库简介**
+
+`sunmanxu/MusicSMX-Android-HD` 之前确实没写简介。已通过 GitHub API 补上：
+
+- 简介：`MusicSMX 安卓/平板版（Capacitor 壳 + 复用桌面渲染层）：本地音乐播放器，SAF 曲库、通知栏控制、封面与歌词多源自动补全。桌面版见 sunmanxu/MusicSMX`
+- Topics：`music-player, android, capacitor, webview, local-music, tablet`
+
+**真机实测**：点 logo → `com.android.browser` 起来，地址栏是 `github.com/sunmanxu/MusicSMX-Android-HD`；
+版本角标 `安卓HD 1.0.28`。
