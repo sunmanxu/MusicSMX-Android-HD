@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.23-android',
+    version: '1.0.24-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -785,7 +785,17 @@
     saveThumb: function (key, dataUrl) { return nativeCall('saveThumb', { key: key, dataUrl: dataUrl }); },
     readLyricsFile: function (filePath) { return nativeCall('readLyricsFile', { filePath: filePath }); },
     saveCover: function (dataUrl, saveDir, artist, title) {
-      return nativeCall('saveCover', { dataUrl: dataUrl, saveDir: saveDir || '', artist: artist || '', title: title || '' });
+      return nativeCall('saveCover', { dataUrl: dataUrl, saveDir: saveDir || '', artist: artist || '', title: title || '' })
+        .then(function (r) {
+          // 1.0.24：存成功了就把 key 记进 app.js 的 localCoverFiles ——
+          // 不记的话，同一次运行里再点一次「批量下载」还会把这批歌再下一次（app.js 只在启动时扫盘建这个表）
+          try {
+            if (r && r.ok && S && S.localCoverFiles && S.localCoverFiles.add) {
+              S.localCoverFiles.add(cacheKeyOf(artist, title));
+            }
+          } catch (e) {}
+          return r;
+        });
     },
     saveLyrics: function (lrc, saveDir, artist, title, meta) {
       const payload = (lrc && typeof lrc === 'object') ? lrc : { lrc: lrc };
@@ -796,6 +806,14 @@
         yrc: payload.yrc || '',
         saveDir: saveDir || '', artist: artist || '', title: title || '',
         meta: meta || {}
+      }).then(function (r) {
+        // 1.0.24：同上 —— 落盘成功就记进 localLyricsFiles，再点一次也不会重复下载
+        try {
+          if (r && r.ok && S && S.localLyricsFiles && S.localLyricsFiles.add) {
+            S.localLyricsFiles.add(cacheKeyOf(artist, title));
+          }
+        } catch (e) {}
+        return r;
       });
     },
     saveLyricOffset: function (payload) {
@@ -1031,7 +1049,29 @@
     autoFixTrack: function (artist, title, album, duration) {
       const O = window.__online;
       if (!O) return Promise.resolve({ ok: false, needFix: false });
-      return O.autoFixTrackInfo(artist, title, album, duration).then(function (r) { return r || { ok: false, needFix: false }; })
+      // 1.0.24：查过的「信息本来就对」的歌不再每次重查（详见下方 autoFixMemo）
+      const fp = autoFixFp(artist, title, album, duration);
+      const m = readAutoFixMemo(fp);
+      if (m) {
+        window.__mbAutoFixMemo = window.__mbAutoFixMemo || { hit: 0, net: 0, saved: 0 };
+        window.__mbAutoFixMemo.hit++;
+        return Promise.resolve({ ok: true, needFix: false, memo: true, reason: '已核对过，无需修复' });
+      }
+      return O.autoFixTrackInfo(artist, title, album, duration).then(function (r) {
+        const out = r || { ok: false, needFix: false };
+        // 只有「明确核对过是对的信息」才记下来；没搜到（可能是网络问题）只记一个短期的"没搜到"，
+        // 过几天还会再试一次，免得偶发一次失败就把这首歌永久判成"没信息"。
+        if (!out.needFix && out.checks && out.checks.titleOk && out.checks.artistOk && out.checks.albumOk) {
+          writeAutoFixMemo(fp, 1);
+        } else if (!out.needFix) {
+          writeAutoFixMemo(fp, 0);
+        }
+        try {
+          window.__mbAutoFixMemo = window.__mbAutoFixMemo || { hit: 0, net: 0, saved: 0 };
+          window.__mbAutoFixMemo.net++;
+        } catch (e) {}
+        return out;
+      })
         .catch(function () { return { ok: false, needFix: false }; });
     },
 
@@ -2355,15 +2395,21 @@
         const origFix = window.autoFixAll;
         window.autoFixAll = function () {
           window.__mbAutoFixConfirmed = false;
+          // 1.0.24：修复循环里每首都固定等 200ms（app.js 为了不打断音频），1400 首就是近 5 分钟的纯等待。
+          // 命中记忆的歌是零网络的，这 200ms 完全是干等 —— 所以修复期间把 200ms 这个档压到 30ms，
+          // 结束时立刻还原（只动这一档，其它定时器不受影响）。
+          clampFixTimers(true);
           const run = origFix.apply(this, arguments);
           const next = function () {
             // 在确认框里点了取消 → 不接着下载（不然等于绕过他本人的确认）
-            if (!window.__mbAutoFixConfirmed) return;
+            if (!window.__mbAutoFixConfirmed) { clampFixTimers(false); return; }
             const dl = window.startBatchDownload;
-            if (typeof dl !== 'function') return;
+            if (typeof dl !== 'function') { clampFixTimers(false); return; }
             try { toastBox('修复完成，开始缓存封面和歌词…'); } catch (e) {}
-            const p = dl.apply(window, []);
-            return Promise.resolve(p).catch(function () {});
+            // 缓存那段循环里也是每首固定等 200ms（同样压到 30ms），跑完一并还原
+            return Promise.resolve(dl.apply(window, []))
+              .catch(function () {})
+              .then(function () { clampFixTimers(false); });
           };
           return Promise.resolve(run).then(next, next);
         };
@@ -2377,6 +2423,79 @@
     }
   }
   try { window.__mbToolboxMerge = installToolboxMerge; } catch (e) {}
+
+  /** 修复循环期间把 200ms 这一档的定时器压到 30ms（只影响 setTimeout(…, 200) 这一种） */
+  function clampFixTimers(on) {
+    try {
+      if (on) {
+        if (window.__mbFixT0) return;
+        const orig = window.setTimeout;
+        window.__mbFixT0 = orig;
+        window.setTimeout = function (fn, ms) {
+          const args = Array.prototype.slice.call(arguments);
+          if (ms === 200) args[1] = 30;
+          return orig.apply(window, args);
+        };
+      } else if (window.__mbFixT0) {
+        window.setTimeout = window.__mbFixT0;
+        window.__mbFixT0 = null;
+      }
+    } catch (e) {}
+  }
+
+  // ---------------- 1.0.24：自动修复别把「已经核对过」的歌再联网查一遍 ----------------
+  // 现象：app.js 的 autoFixAll 只跳过「已修复过(fixedTracks)」「已锁定」「占位缺失」三种，
+  // 对「查完发现信息本来就对」的歌**不留任何记录** —— 于是每点一次自动修复，这些歌都要重新联网搜一遍
+  // （一首 0.5~2 秒 + 循环里固定 200ms 间隔，1400 首就是四十分钟起步）。
+  // 这里在 mb.autoFixTrack 上做一层本地记忆：核对通过的直接命中记忆、零网络返回 needFix:false；
+  // 一条都没搜到的只记 7 天（可能只是当时网络抖了），过几天还会再试。
+  const AUTOFIX_MEMO_KEY = 'mb_autofix_memo_v1';
+  const AUTOFIX_GOOD_TTL = 30 * 24 * 3600 * 1000;   // 核对通过：30 天内不再重复查
+  const AUTOFIX_MISS_TTL = 7 * 24 * 3600 * 1000;    // 一条都没搜到：7 天后再说
+  let autofixMemo = null;
+  let autofixMemoDirty = false;
+  let autofixMemoTimer = 0;
+  function loadAutoFixMemo() {
+    if (autofixMemo) return autofixMemo;
+    try { autofixMemo = JSON.parse(localStorage.getItem(AUTOFIX_MEMO_KEY) || '{}') || {}; }
+    catch (e) { autofixMemo = {}; }
+    return autofixMemo;
+  }
+  function autoFixFp(artist, title, album, duration) {
+    const n = function (s) { return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+    return n(artist) + '|' + n(title) + '|' + n(album) + '|' + Math.round(Number(duration) || 0);
+  }
+  function readAutoFixMemo(fp) {
+    const m = loadAutoFixMemo()[fp];
+    if (!m) return null;
+    const ttl = m.v ? AUTOFIX_GOOD_TTL : AUTOFIX_MISS_TTL;
+    return (Date.now() - (m.t || 0) < ttl) ? m : null;
+  }
+  function flushAutoFixMemo() {
+    autofixMemoTimer = 0;
+    if (!autofixMemoDirty) return;
+    autofixMemoDirty = false;
+    try { localStorage.setItem(AUTOFIX_MEMO_KEY, JSON.stringify(loadAutoFixMemo())); } catch (e) {}
+  }
+  function writeAutoFixMemo(fp, v) {
+    const m = loadAutoFixMemo();
+    m[fp] = { v: v ? 1 : 0, t: Date.now() };
+    const keys = Object.keys(m);
+    if (keys.length > 5000) {
+      keys.sort(function (a, b) { return (m[a].t || 0) - (m[b].t || 0); });
+      for (let i = 0; i < Math.floor(keys.length / 2); i++) delete m[keys[i]];
+    }
+    // 一首一写 localStorage 太贵（1400 首就是 1400 次全量序列化）→ 攒 3 秒或 20 首写一次
+    autofixMemoDirty = true;
+    const pending = (writeAutoFixMemo._n = (writeAutoFixMemo._n || 0) + 1);
+    if (pending % 20 === 0) flushAutoFixMemo();
+    else if (!autofixMemoTimer) autofixMemoTimer = setTimeout(flushAutoFixMemo, 3000);
+  }
+  // 与 app.js 里生成 coverKey / lyricsKey 的 safeKey 保持完全一致
+  function cacheKeyOf(artist, title) {
+    return (String(artist || '') + ' - ' + String(title || ''))
+      .replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 120).toLowerCase();
+  }
 
   // ---------------- 应用内更新（1.0.21） ----------------
   // 流程：查 GitHub Release → 比版本号 → 下载到 cache/updates（带进度）→ 交系统安装器。
