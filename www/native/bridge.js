@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.22-android',
+    version: '1.0.23-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -2306,7 +2306,77 @@
     installUpdateCenter();
     setTimeout(installUpdateCenter, 900);
     setTimeout(installUpdateCenter, 2400);
+    // 工具菜单合并「自动修复 + 批量下载」（1.0.23）
+    installToolboxMerge();
+    [500, 1200, 2400, 4000].forEach(function (ms) { setTimeout(installToolboxMerge, ms); });
   }
+
+  // ---------------- 1.0.23：工具菜单「自动修复」合并「批量下载」 ----------------
+  // 用户要求：工具按钮里这两个合成一个 —— 点「自动修复」时，修完信息顺手把专辑封面和歌词缓存下来。
+  // 不碰 app.js：autoFixAll / startBatchDownload / showConfirm 都是 app.js 顶层的全局函数，
+  // 这里把 autoFixAll 包一层（修完接着跑 startBatchDownload），
+  // 并把 startBatchDownload 自己那个「批量下载」确认弹窗直接放过 ——
+  // 用户刚在「自动修复确认」里点过确定，再弹一次纯属添乱。
+  let toolboxMergeTries = 0;
+  function installToolboxMerge() {
+    try {
+      // ① 菜单项：删掉「批量下载」，把「自动修复」改成合并后的说明
+      const menu = document.getElementById('batch-menu');
+      if (menu) {
+        const bd = menu.querySelector('.batch-item[data-action="batch-download"]');
+        if (bd && bd.parentNode) bd.parentNode.removeChild(bd);
+        const af = menu.querySelector('.batch-item[data-action="auto-fix"]');
+        if (af) {
+          const t = af.querySelector('.batch-title');
+          const d = af.querySelector('.batch-desc');
+          if (t) t.textContent = '自动修复 + 缓存封面歌词';
+          if (d) d.textContent = '联网校验/修复歌曲信息，修完接着把专辑封面和歌词缓存到本地（已缓存的自动跳过）';
+        }
+      }
+      // ② 确认弹窗钩子：记住「自动修复」到底点没点确定；「批量下载」的确认直接放过
+      if (typeof window.showConfirm === 'function' && !window.__mbConfirmHooked) {
+        const oc = window.showConfirm;
+        window.showConfirm = function (title, text) {
+          const ti = String(title || '');
+          if (ti.indexOf('批量下载') >= 0) return Promise.resolve(true);
+          const p = oc.apply(this, arguments);
+          if (ti.indexOf('自动修复') >= 0) {
+            return Promise.resolve(p).then(function (v) {
+              window.__mbAutoFixConfirmed = !!v;
+              return v;
+            });
+          }
+          return p;
+        };
+        window.__mbConfirmHooked = true;
+      }
+      // ③ 把 autoFixAll 包起来：修完接缓存
+      if (typeof window.autoFixAll === 'function' && !window.__mbAutoFixMerged) {
+        const origFix = window.autoFixAll;
+        window.autoFixAll = function () {
+          window.__mbAutoFixConfirmed = false;
+          const run = origFix.apply(this, arguments);
+          const next = function () {
+            // 在确认框里点了取消 → 不接着下载（不然等于绕过他本人的确认）
+            if (!window.__mbAutoFixConfirmed) return;
+            const dl = window.startBatchDownload;
+            if (typeof dl !== 'function') return;
+            try { toastBox('修复完成，开始缓存封面和歌词…'); } catch (e) {}
+            const p = dl.apply(window, []);
+            return Promise.resolve(p).catch(function () {});
+          };
+          return Promise.resolve(run).then(next, next);
+        };
+        window.__mbAutoFixMerged = true;
+      }
+    } catch (e) {}
+    // app.js 还没跑完时函数还不在，退避再试几次
+    if (!window.__mbAutoFixMerged && toolboxMergeTries < 20) {
+      toolboxMergeTries++;
+      setTimeout(installToolboxMerge, 400);
+    }
+  }
+  try { window.__mbToolboxMerge = installToolboxMerge; } catch (e) {}
 
   // ---------------- 应用内更新（1.0.21） ----------------
   // 流程：查 GitHub Release → 比版本号 → 下载到 cache/updates（带进度）→ 交系统安装器。

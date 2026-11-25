@@ -1070,3 +1070,37 @@ Capacitor 的插件方法是排队执行的 → 所有网络请求实际是**串
 - **每次发到 GitHub 必须写明这一版更新了什么**：`scripts/publish-release.ps1` 现在默认只打印预览（不发请求），加 `-Publish` 才真的发；
   发布说明自动从本 README 里抽「`## <版本号>`」那一整段，找不到这一段就报错停下（逼着每次写清改动）。
 - CI（`.github/workflows/android-release.yml`）仍然只编译验证、只留 workflow artifact，不自动发 Release —— 签名必须本机。
+
+## 1.0.23（2026-11-25）
+
+用户要求：工具按钮里「自动修复」和「批量下载」合成一个，点自动修复的时候顺带把专辑封面和歌词也缓存下来。
+
+**做了什么（仍然只改 `www/native/bridge.js`，`app.js` 一行没动）**
+
+- 工具菜单里删掉「批量下载」那一项，「自动修复」改名为「自动修复 + 缓存封面歌词」，
+  说明改成「联网校验/修复歌曲信息，修完接着把专辑封面和歌词缓存到本地（已缓存的自动跳过）」。菜单现在 5 项：
+  自动修复 + 缓存封面歌词 / 批量转格式 / 导出缺失歌曲名单 / 检查重复歌曲 / 音乐库合并。
+- 串联方式（`installToolboxMerge`）：`autoFixAll`（app.js 的全局函数）包一层，修完自动接着调 `startBatchDownload`；
+  同时钩住 `showConfirm`：`startBatchDownload` 自己那次「批量下载」确认直接放过（用户刚在「自动修复确认」里点过确定，
+  不该连弹两次）；反过来，如果用户在「自动修复确认」里点了取消，就不再往下走缓存 —— 不绕过他本人的确认。
+- 两段进度条复用现成的：先 `autofix-bar`（已修复/无需/失败），再 `batchdl-bar`（封面/歌词/失败），不用重画 UI。
+- 版本号三处同步：`build.gradle` 24 / 1.0.23、设置 chip「安卓HD 1.0.23」、`bridge.js` 的 `version: '1.0.23-android'`。
+
+**真机实测（小米平板 6S Pro）**
+
+- 菜单项核对：`['auto-fix 自动修复 + 缓存封面歌词','batch-mp3','export-missing','check-dupes','merge-libraries']`，
+  `批量下载` 已不在列表里；见 `test/t1-1.0.23-工具箱合并.png`。
+- 接线验证（不动任何音乐文件，`test/probe-toolbox-merge.js`）：
+  ① 取消路径 —— 确认框返回 false 时 `batchDownloadCalls = 0`（不会偷偷下载）；
+  ② 成功路径 —— 确认后 `batchDownloadCalls = 1`（真的接力去缓存）。
+- 缓存能力（这条链路依赖的原生方法，真机逐项验证，以「王靖雯 - 不知所措」为例）：
+  `mb.fetchCover` → 真封面 42,703 B；`mb.saveCover` → ok；`mb.fetchLyrics` → 1,238 字 LRC；`mb.saveLyrics` → ok。
+  `S.settings.saveCover / saveLyrics` 都是 true，缓存会真的落盘。
+
+`MusicSMX-1.0.23-debug.apk`（versionCode 24 / 5,016,748 B）
+
+**发布规则（沿用 1.0.22 定下的口径，别忘）**
+
+- **只有用户明确说「更新到 GitHub」才推送 / 打 tag / 发 Release**；平时只在本机构建、本机装机自测。
+- **每次发到 GitHub 必须写明这一版更新了什么**：`scripts\publish-release.ps1` 默认只打印预览，加 `-Publish` 才真的发，
+  发布说明自动从本 README 抽「`## <版本号>`」段，抽不到就报错。
