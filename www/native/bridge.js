@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.21-android',
+    version: '1.0.22-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -1536,11 +1536,20 @@
     mem: new Map(),        // albumKey -> dataUrl
     missFile: new Set(),   // path -> 内嵌封面确认没有
     jobs: new Map(),       // albumKey -> job（同一专辑只跑一次）
-    dead: new Set(),       // 本次运行确认拿不到的专辑，别再重排
+    dead: new Set(),       // 本次运行「连续 3 次」都拿不到的专辑，别再重排
+    fails: new Map(),      // albumKey -> 本次运行失败次数（1.0.22：失败可重排，不再一次就拉黑）
+    nextAt: new Map(),     // albumKey -> 下次允许重排的时间（退避冷却，别一失败就立刻重打接口）
+    tries: 3,              // 同一张专辑最多试几次
+    backoff: 12000,        // 重试间隔基数（第 n 次失败等 n×backoff；一次 job 里已含精搜，所以不用等那么久）
     persist: new Set(),    // 已经用 app.js 的单曲封面顶过专辑缩略图的 key（别重复写盘）
     queue: [],
     inflight: 0,
-    max: 4,
+    max: 8,                // 1.0.22：并发路数。原本 4，一度降到 3 是为了绕开「下载全挂」引发的空转，
+                           // 但真正的元凶是酷我图床 https 握手失败（改 http 后 dlFail=0），
+                           // 于是放开到 8：一屏 33 张图从 20s+ 压到 10s 左右。
+    scrollAt: 0,           // 最近一次用户滚动时间（滚动中不做预取，免得把可见区的队排到后面）
+    fp: new Map(),         // 1.0.22：缩略图指纹 → 占用它的专辑 key（用来揪「多张专辑同一张图」的通用占位图）
+    weak: new Set(),       // 1.0.22：目前行上贴的是「占位/共用图」的专辑 key（还没等到真封面）
     neg: {},
     negLoaded: false,
   };
@@ -1549,13 +1558,13 @@
     if (THUMB.negLoaded) return;
     THUMB.negLoaded = true;
     try {
-      const raw = localStorage.getItem('mb_thumb_neg_v2');
+      const raw = localStorage.getItem('mb_thumb_neg_v3');
       THUMB.neg = raw ? JSON.parse(raw) : {};
     } catch (e) { THUMB.neg = {}; }
   }
 
   function saveThumbNeg() {
-    try { localStorage.setItem('mb_thumb_neg_v2', JSON.stringify(THUMB.neg)); } catch (e) {}
+    try { localStorage.setItem('mb_thumb_neg_v3', JSON.stringify(THUMB.neg)); } catch (e) {}
   }
 
   function negTs(rec) {
@@ -1592,7 +1601,10 @@
     loadThumbNeg();
     const rec = THUMB.neg[key];
     if (!rec) return false;
-    // 1.0.20：7 天太久 —— 网络抖三下就把一张专辑封了 7 天，发如雪这种就是被这么坑掉的。\n    // 改成 12 小时：一次没拿到，隔半天再试一次，能自己长回来。\n    return (Date.now() - negTs(rec) < 12 * 3600 * 1000) && negCount(rec) >= 3;
+    // 1.0.20：7 天太久 —— 网络抖三下就把一张专辑封了 7 天，发如雪这种就是被这么坑掉的。
+    // 1.0.22：改 6 小时，并且换了存储键（mb_thumb_neg_v3）—— 老记录全是"失败一次就拉黑"时代留下的，
+    //         留着只会让用户升级后还是那批歌没图。
+    return (Date.now() - negTs(rec) < 6 * 3600 * 1000) && negCount(rec) >= 3;
   }
 
   function thumbBox(row) {
@@ -1837,11 +1849,42 @@
 
   // 联网取缩略图：快枪搜索 → 下 thumbUrl（小图）→ canvas 缩到 96px → 写盘
   //   顺带把各阶段失败记到 window.__thumbStats，方便在真机上直接查「到底卡在哪一步」
-  const THUMB_STATS = { ok: 0, searchFail: 0, dlFail: 0, smallFail: 0, defaultImg: 0, failLog: [] };
+  const THUMB_STATS = { ok: 0, searchFail: 0, dlFail: 0, smallFail: 0, defaultImg: 0, genericImg: 0, timeout: 0, drop: 0, failLog: [] };
   try { window.__thumbStats = THUMB_STATS; } catch (e) {}
   function thumbFail(key, stage) {
     THUMB_STATS[stage]++;
     if (THUMB_STATS.failLog.length < 30) THUMB_STATS.failLog.push(stage + ':' + key);
+  }
+
+  // ===== 1.0.22：揪出「多张专辑共用同一张图」的通用占位图 =====
+  // 源站搜不到封面时会塞一张通用的唱片图（酷狗/酷我/网易云都给，而且往往是同一张）。
+  // 1.0.18 的白底判据抓不住全部（实测有 whiteFrac=0、中心亮度 13 的深色唱片图）。
+  // 更硬的办法：同一张缩略图如果出现在第二张「不同专辑」上，它就不可能是真封面。
+  // 但它比「一片空白 ♪」还是好看 —— 所以当「弱图」先顶上去（不落盘、标记 THUMB.weak），
+  // 后台继续按 12s/24s 退避找真封面，找到了再整块换掉（见 syncRowCover / forceRepaintKey）。
+  function coverFp(small) { return small.length + ':' + small.slice(-64); }
+  function coverIsGeneric(key, small) {
+    const fp = coverFp(small);
+    const prev = THUMB.fp.get(fp);
+    if (prev && prev !== key) return true;
+    if (THUMB.fp.size > 900) THUMB.fp.clear();
+    THUMB.fp.set(fp, key);
+    return false;
+  }
+
+  /** 某专辑拿到真图了 → 把已经贴上「弱图」的行强制重画一遍 */
+  function forceRepaintKey(key) {
+    try {
+      const url = THUMB.mem.get(key);
+      if (!url) return;
+      const rows = document.querySelectorAll('#track-list .track-row');
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.mbCoverKey === key) {
+          paintThumb(rows[i], url, true);
+          rows[i].dataset.mbCoverFrom = 'thumb';
+        }
+      }
+    } catch (e) {}
   }
 
   function fetchThumbOnline(job) {
@@ -1850,67 +1893,118 @@
       let auto = true;
       try { auto = S && S.settings ? S.settings.autoCover !== false : true; } catch (e) {}
       if (!O || !auto) { resolve(null); return; }
-      const search = O.searchCoverFast || O.searchCover;
+      // 1.0.22 实测：一次 job 里「快枪失败立刻精搜」会让单张专辑耗时翻十倍（精搜是源×变体串行），
+      // 排在后面的行反而更晚出图（冷缓存滚屏时出现过「一屏 33 行只出 1 张」）。
+      // 所以退回到「第一次快枪、第二次以后精搜」，只是把退避从 25s 收到 12s。
+      const fast = O.searchCoverFast || O.searchCover;
+      const search = (job.deep && typeof O.searchCover === 'function') ? O.searchCover : fast;
       if (typeof search !== 'function') { resolve(null); return; }
-      search(job.artist, job.title, 2600, job.album).then(function (info) {
-        if (!info) { thumbFail(job.key, 'searchFail'); resolve(null); return; }
-        // 源已经给了 200/300px 的 thumbUrl，别去下 600~800 的大图再缩：白等好几倍流量
-        const url = info.thumbUrl || info.url;
-        if (!url) { thumbFail(job.key, 'searchFail'); resolve(null); return; }
+      // 拿搜索结果的图地址 → 下载 → 缩 96 → 判占位图/共用图；weak=只能当临时占位
+      const take = function (info) {
+        const url = info && (info.thumbUrl || info.url);
+        if (!url) return Promise.resolve(null);
         return O.downloadCover(url).then(function (dataUrl) {
-          if (!dataUrl) { thumbFail(job.key, 'dlFail'); resolve(null); return; }
+          if (!dataUrl) { thumbFail(job.key, 'dlFail'); return null; }
           return downscaleCover(dataUrl, 96).then(function (small) {
+            if (!small) return null;
             return looksLikeDefaultCover(small).then(function (isDefault) {
-              // 快枪源给的是黑胶占位图 → 换「精搜」再要一次（精搜走网易云，通常能拿到真封面）
-              if (!isDefault) return small;
-              THUMB_STATS.defaultImg++;
-              const deep = O.searchCover;
-              if (typeof deep !== 'function') return small;
-              return deep(job.artist, job.title, job.album).then(function (info2) {
-                const url2 = info2 && (info2.thumbUrl || info2.url);
-                if (!url2) return small;
-                return O.downloadCover(url2).then(function (d2) {
-                  if (!d2) return small;
-                  return downscaleCover(d2, 96).then(function (small2) {
-                    if (!small2) return small;
-                    return looksLikeDefaultCover(small2).then(function (d2bad) {
-                      return d2bad ? small : small2;   // 精搜也是占位图就认了，别白抓第三轮
-                    });
-                  });
-                });
-              }).catch(function () { return small; });
+              const generic = coverIsGeneric(job.key, small);
+              if (isDefault) THUMB_STATS.defaultImg++;
+              if (generic) THUMB_STATS.genericImg++;
+              return { url: small, weak: !!(isDefault || generic) };
             });
-          }).then(function (out) {
-            if (out) { THUMB_STATS.ok++; mb.saveThumb(job.key, out).catch(function () {}); }
-            resolve(out);
           });
-        });
+        }).catch(function () { return null; });
+      };
+      search(job.artist, job.title, 2600, job.album).then(take).then(function (res) {
+        if (res && res.url) {
+          if (res.weak) {
+            THUMB.weak.add(job.key);      // 弱图先顶上，不写盘；后台继续找真图
+          } else {
+            THUMB.weak.delete(job.key);
+            THUMB_STATS.ok++;
+            mb.saveThumb(job.key, res.url).catch(function () {});
+          }
+          resolve(res.url);
+        } else {
+          thumbFail(job.key, 'searchFail');
+          resolve(null);
+        }
       }).catch(function () { thumbFail(job.key, 'searchFail'); resolve(null); });
     });
+  }
+
+  /** 1.0.22：失败退避重试（最多 3 次，间隔 12s / 24s） */
+  function scheduleThumbRetry(job) {
+    const n = (THUMB.fails.get(job.key) || 0) + 1;
+    THUMB.fails.set(job.key, n);
+    if (n >= THUMB.tries) {
+      THUMB.dead.add(job.key);
+      THUMB.nextAt.delete(job.key);
+      markThumbNeg(job.key);      // 跨重启也记住，但 12 小时后会自己解禁
+      thumbFail(job.key, 'drop');
+      return;
+    }
+    const delay = THUMB.backoff * n;
+    job.deep = true;   // 重试走精搜
+    // 冷却期内的 key 不许被"扫一遍就重排"的定时任务立刻再派一次
+    THUMB.nextAt.set(job.key, Date.now() + delay);
+    setTimeout(function () {
+      if (THUMB.dead.has(job.key)) return;
+      // 已有「真图」就别再抢；只有弱图（占位/共用图）时继续找
+      if (THUMB.mem.has(job.key) && !THUMB.weak.has(job.key)) return;
+      THUMB.nextAt.delete(job.key);
+      if (THUMB.jobs.has(job.key)) return;
+      THUMB.jobs.set(job.key, job);
+      if (THUMB.queue.indexOf(job) < 0) THUMB.queue.unshift(job);  // 重试也走优先位
+      pumpThumbs();
+    }, delay);
   }
 
   function runThumbJob(job) {
     THUMB.inflight++;
     let settled = false;
+    let watchdog = 0;
     const done = function (url) {
       if (settled) return;
       settled = true;
+      clearTimeout(watchdog);
       THUMB.inflight--;
       THUMB.jobs.delete(job.key);
       if (url) {
-        clearThumbNeg(job.key);
         if (THUMB.mem.size > 600) THUMB.mem.clear();
         THUMB.mem.set(job.key, url);
+        const wasWeak = THUMB.weak.has(job.key);
+        if (wasWeak) {
+          // 先贴着占位/共用图，但真封面还没到手 → 继续退避重试（找到了 forceRepaintKey 会整块换掉）
+          scheduleThumbRetry(job);
+        } else {
+          clearThumbNeg(job.key);
+          THUMB.fails.delete(job.key);
+          if (wasWeak === false && THUMB.fp.size) forceRepaintKey(job.key);
+        }
         // 1.0.19：刚拿到当前这首歌的专辑图 → 顺手把左下角那张占位图换掉
         try {
           if (typeof S !== 'undefined' && S.current >= 0 && job.key === albumKeyOf(S.tracks[S.current])) paintFooterCover();
         } catch (e) {}
       } else {
-        THUMB.dead.add(job.key);
+        // 1.0.22：失败不再"一次就拉黑"。用户反馈"有些歌不点它就不出图"，
+        // 根因就是这里一次失败就把专辑塞进 dead、本次运行永不再试，
+        // 只能等他点播放让 app.js 自己那条链路把封面补上来。
+        // 改成：最多试 3 次，第 n 次失败后隔 n×25s 再排一次；3 次都空才真放弃。
+        scheduleThumbRetry(job);
       }
       scheduleThumbPass();
       pumpThumbs();
     };
+    // 1.0.22：看门狗。原来 fetchThumbOnline 里任何一步卡住（httpFetch 挂起、
+    // 某首歌的封面接口不回包），inflight 就永远不还，pumpThumbs 卡在 max 上不再派活 ——
+    // 表现就是"整个列表的缩略图突然集体不加载了"。22 秒还没结果就当失败，放回队列重试。
+    watchdog = setTimeout(function () {
+      if (settled) return;
+      thumbFail(job.key, 'timeout');
+      done(null);
+    }, 22000);
     const tryFile = function () {
       if (THUMB.missFile.has(job.path)) { done(null); return; }
       mb.readThumb(job.path, 96).then(function (r) {
@@ -1956,6 +2050,8 @@
       if (box) { box.dataset.ready = '0'; box.innerHTML = '<span class="mb-cover-ph">&#9835;</span>'; }
     }
     if (box && box.dataset.ready === '1' && row.dataset.mbCoverFrom === 'track') return;
+    // 1.0.22：行上贴的是「弱图」（占位/共用图）→ 下面拿到真图要强制盖掉，不能因为 ready=1 就跳过
+    const weak = THUMB.weak.has(key);
     // 1.0.14：页脚/海报页那边 app.js 自己联网拿到的封面（S.coverCache 按 path 存 dataUrl）
     // 也拿来给行用 —— 用户反馈「左下角有封面、列表里同一首却没图」就是这条路没接上：
     // 两条链路（行缩略图按「专辑」、app.js 封面色按「单曲」）各查各的。
@@ -1975,13 +2071,20 @@
     if (t.cover && row.dataset.mbCoverFrom !== 'track') {
       paintThumb(row, t.cover, true);
       row.dataset.mbCoverFrom = 'track';
+      THUMB.weak.delete(key);      // app.js 的单曲封面当「真图」，弱图标记作废
       return;
     }
-    if (box && box.dataset.ready === '1') return;
+    if (box && box.dataset.ready === '1' && !weak) return;
     const url = cached || THUMB.mem.get(key);
-    if (url) { paintThumb(row, url); row.dataset.mbCoverFrom = 'thumb'; return; }
+    if (url) {
+      paintThumb(row, url, weak);
+      row.dataset.mbCoverFrom = cached && !THUMB.mem.has(key) ? 'track' : 'thumb';
+      return;
+    }
     thumbBox(row);                              // 先占位，行高不抖
     if (THUMB.jobs.has(key) || THUMB.dead.has(key)) return;
+    // 1.0.22：退避冷却中（这张专辑刚失败过），等冷却结束那支定时器自己重排，别在这儿空转
+    if (THUMB.nextAt.has(key) && Date.now() < THUMB.nextAt.get(key)) return;
     // 滑动很快时一行只会被扫到一次，这时先别发请求（发了也是白花流量）；
     // 停住不动会有第二次扫描（见 scheduleThumbPass 里的补扫定时器），那时才排队。
     const seen = (parseInt(row.dataset.mbSeen, 10) || 0) + 1;
@@ -1989,25 +2092,53 @@
     if (seen < 2) return;
     const job = { key: key, path: t.path, artist: t.artist || '', title: t.title || '', album: t.album || '' };
     THUMB.jobs.set(key, job);
-    THUMB.queue.push(job);
+    THUMB.queue.unshift(job);   // 1.0.22：可见行的队插到最前面（预取的在后面排队，别抢可见区的网速）
     pumpThumbs();
   }
 
-  // 往下多抓一点：可见区域之后 24 首涉及的专辑提前排队，
-  // 用户往下滑的时候不用等（上限 40 个待办，别一次排太多把接口打爆）
+  // 往下多抓一点：可见区域之后一小段提前排队，用户往下滑的时候不用等。
+  // 1.0.22：原来「之后 30 首、队列上限 60」在滚动时会把队列灌满 —— 可见区那几十行反而排在预取后面，
+  // 表现就是「滚下去一片 ♪，等半天才出图，点一下播放倒立刻有了」。收成：
+  //   ① 只在用户停手 900ms 以上才预取；② 队列里还有活就先不加塞；③ 只预取 8 首、队列上限 10。
   function prefetchAhead(maxVisibleIdx) {
     if (typeof S === 'undefined' || !S.tracks || maxVisibleIdx < 0) return;
-    const end = Math.min(S.tracks.length - 1, maxVisibleIdx + 30);
+    if (Date.now() - THUMB.scrollAt < 900) return;
+    if (THUMB.inflight + THUMB.queue.length > 3) return;
+    const end = Math.min(S.tracks.length - 1, maxVisibleIdx + 8);
+    let added = 0;
     for (let i = maxVisibleIdx + 1; i <= end; i++) {
-      if (THUMB.queue.length >= 60) break;
+      if (THUMB.queue.length >= 10 || added >= 8) break;
       const t = S.tracks[i];
       if (!t || !t.path || t.isOnline) continue;
       const key = albumKeyOf(t);
       if (THUMB.mem.has(key) || THUMB.jobs.has(key) || THUMB.dead.has(key) || thumbNegFresh(key)) continue;
+      if (THUMB.nextAt.has(key) && Date.now() < THUMB.nextAt.get(key)) continue;
       THUMB.jobs.set(key, { key: key, path: t.path, artist: t.artist || '', title: t.title || '', album: t.album || '' });
       THUMB.queue.push(THUMB.jobs.get(key));
+      added++;
     }
     pumpThumbs();
+  }
+
+  // 1.0.22：自己这条链路 3 次都没拿到的专辑，最后借 app.js 的单曲封面链路再要一次。
+  // 用户描述的现象是「不点它就不出图，点一下播放立刻就有了」—— 播放走的是 app.js 的 fetchAndApplyCover
+  // （按单曲、多个变体、更高预算），它拿到的图会写进 S.coverCache，这里下一轮扫描就能贴上行了。
+  // 所以对 dead 的专辑，主动替它跑一次 app.js 那条路，等于「不用点播放也能补图」。
+  const appCoverTried = new Set();
+  function nudgeAppCover(row, limit) {
+    if (limit.left <= 0) return;
+    const t = rowTrack(row);
+    if (!t || t.cover) return;
+    if (!THUMB.dead.has(albumKeyOf(t))) return;
+    if (appCoverTried.has(t.path)) return;
+    try { if (S && S.coverCache && S.coverCache.has(t.path)) return; } catch (e) {}
+    if (appCoverTried.size > 400) appCoverTried.clear();
+    appCoverTried.add(t.path);
+    limit.left--;
+    try {
+      if (typeof window.fetchAndApplyCover === 'function') window.fetchAndApplyCover(t);
+      else if (typeof fetchAndApplyCover === 'function') fetchAndApplyCover(t);
+    } catch (e) {}
   }
 
   let thumbRaf = 0;
@@ -2021,8 +2152,10 @@
         const rows = list.getElementsByClassName('track-row');
         let maxIdx = -1;
         let needAgain = false;
+        const limit = { left: 2 };   // 每次扫描最多借 2 首，别把 app.js 那条路也打爆
         for (let i = 0; i < rows.length; i++) {
           syncRowCover(rows[i]);
+          nudgeAppCover(rows[i], limit);
           if ((parseInt(rows[i].dataset.mbSeen, 10) || 0) < 2) needAgain = true;
           const idx = parseInt(rows[i].dataset.idx, 10);
           if (!isNaN(idx) && idx > maxIdx) maxIdx = idx;
@@ -2044,7 +2177,7 @@
     try {
       new MutationObserver(scheduleThumbPass).observe(list, { childList: true });
     } catch (e) {}
-    list.addEventListener('scroll', scheduleThumbPass, { passive: true });
+    list.addEventListener('scroll', function () { THUMB.scrollAt = Date.now(); scheduleThumbPass(); }, { passive: true });
     scheduleThumbPass();
     setTimeout(scheduleThumbPass, 600);
     setTimeout(scheduleThumbPass, 2000);

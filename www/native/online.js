@@ -569,11 +569,21 @@ async function searchCoverCandidates(artist, title, album) {
 }
 
 async function downloadCover(url) {
-  try {
-    const buf = await getBuffer(url, { timeout: 15000 });
+  const once = async (u) => {
+    const buf = await getBuffer(u, { timeout: 15000 });
     if (buf.length < 1000) return null;
     return 'data:image/jpeg;base64,' + buf.toString('base64');
+  };
+  try {
+    return await once(url);
   } catch (e) {
+    // 1.0.22：img1~4.sycdn.kuwo.cn 的证书链在这台设备上握手就失败（PC 上同样失败，不是设备问题），
+    // 但同一张图走 http 是 200。封面图没什么隐私可言，降级一次 http 把图拿回来，比整张专辑没图强。
+    let host = '';
+    try { host = new URL(url).host; } catch (_) {}
+    if (/^https:/i.test(url) && /sycdn\.kuwo\.cn$/i.test(host)) {
+      try { return await once(url.replace(/^https:/i, 'http:')); } catch (e2) { return null; }
+    }
     return null;
   }
 }
