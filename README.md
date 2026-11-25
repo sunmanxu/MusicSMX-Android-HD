@@ -1225,3 +1225,26 @@ Capacitor 的插件方法是排队执行的 → 所有网络请求实际是**串
 - 无谓联网没回潮：冷启动全库扫一遍仍只有个位数搜索请求，磁盘缩略图 1397 个。
 
 **其它**：`window.__coverSources` 里多挂了 `kugouAlbum` / `qqSmartbox`，真机上可逐个源单独打点测延迟。
+
+## 1.0.27（2026-11-25）
+
+用户要求：点「顺序播放（列表循环）」之后要先进**随机播放**，再到**单曲循环**。
+
+桌面版 `app.js` 里写死 `const MODE_ORDER = ['list', 'one', 'shuffle']` —— 是 `const`，从外面改不了，
+而 `app.js` 又是纯镜像文件（改了下次同步就被覆盖）。所以这一版仍在 `bridge.js` 里做：
+
+1. 重写一份 `mbCycleMode()`，顺序 `list → shuffle → one → list`；进入随机时照旧 `buildShuffleOrder(true)` 立刻洗牌，
+   然后 `renderModeBtn()` 换图标、`toast` 提示、`saveConfig()` 存盘、播放列表面板开着就重排。
+2. 把它挂到 `window.cycleMode` 上（app.js 的 `cycleMode` 是顶层函数声明，就是全局属性，内部再调 `cycleMode()`
+   会解析到这个新函数 → 托盘小窗 / 媒体键那条 `cycle-mode` 路径自动一起变）。
+3. 两个按钮 `#btn-mode`（歌单页页脚）和 `#pf-mode`（播放页）在加载时 `addEventListener('click', cycleMode)`
+   **把旧函数值抄走了**，所以克隆节点替换 + 重新绑定（`data-mb-mode-bound` 防重复）。
+
+**真机实测**
+
+| 操作 | 结果 |
+| --- | --- |
+| 连点 4 次页脚按钮（起始 shuffle） | `shuffle → one → list → shuffle → one`，图标/提示同步，进随机时洗牌 1478 首 |
+| 播放页 `#pf-mode` | 走同一套顺序（`one → list`） |
+| 杀进程重启 | 模式正确恢复（`list` + 「播放模式：列表循环」） |
+| 版本角标 | `安卓HD 1.0.27` |

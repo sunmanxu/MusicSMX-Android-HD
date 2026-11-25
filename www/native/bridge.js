@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.26-android',
+    version: '1.0.27-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -2462,7 +2462,56 @@
     // 工具菜单合并「自动修复 + 批量下载」（1.0.23）
     installToolboxMerge();
     [500, 1200, 2400, 4000].forEach(function (ms) { setTimeout(installToolboxMerge, ms); });
+    // 播放模式顺序改成 列表循环 → 随机 → 单曲循环（1.0.27）
+    installModeCycleOrder();
+    [500, 1200, 2400, 4000].forEach(function (ms) { setTimeout(installModeCycleOrder, ms); });
   }
+
+  // ---------------- 1.0.27：播放模式三态顺序 ----------------
+  // 用户要求：点顺序播放（列表循环）之后先到「随机播放」，再到「单曲循环」。
+  // 桌面版 app.js 里写死 MODE_ORDER = ['list', 'one', 'shuffle']，那是 const，从外面改不了；
+  // 但 cycleMode / buildShuffleOrder / renderModeBtn / saveConfig / toast 都是 app.js 顶层的全局函数，
+  // 所以这里重写一份 cycleMode（挂在 window 上，app.js 内部的 cycleMode() 调用会解析到这个新函数，
+  // 托盘/媒体键那条 cycle-mode 路径也跟着变），再把两个按钮克隆一遍换掉 app.js 绑定的旧 handler。
+  const MODE_CYCLE = ['list', 'shuffle', 'one'];
+  const MODE_LABEL = { list: '列表循环', one: '单曲循环', shuffle: '随机播放' };
+  function mbCycleMode() {
+    try {
+      const i = Math.max(0, MODE_CYCLE.indexOf(S.mode));
+      S.mode = MODE_CYCLE[(i + 1) % MODE_CYCLE.length];
+      if (S.mode === 'shuffle' && typeof buildShuffleOrder === 'function') buildShuffleOrder(true);
+      if (typeof renderModeBtn === 'function') renderModeBtn();
+      if (typeof toast === 'function') toast('播放模式：' + (MODE_LABEL[S.mode] || S.mode));
+      if (typeof saveConfig === 'function') saveConfig();
+      const qp = document.getElementById('queue-panel');
+      if (qp && qp.classList.contains('open') && typeof renderQueuePanel === 'function') renderQueuePanel();
+    } catch (e) {
+      console.warn('[mb] cycleMode 失败', e);
+    }
+  }
+  function rebindModeButton(id) {
+    const btn = document.getElementById(id);
+    if (!btn || btn.dataset.mbModeBound === '1') return;
+    const clone = btn.cloneNode(true);
+    clone.dataset.mbModeBound = '1';
+    clone.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      mbCycleMode();
+    });
+    if (btn.parentNode) btn.parentNode.replaceChild(clone, btn);
+  }
+  function installModeCycleOrder() {
+    try {
+      if (typeof window.cycleMode === 'function' && !window.cycleMode.__mbWrapped) {
+        mbCycleMode.__mbWrapped = true;
+        window.cycleMode = mbCycleMode;
+      }
+      rebindModeButton('btn-mode');   // 歌单页页脚
+      rebindModeButton('pf-mode');    // 播放页（海报页）
+    } catch (e) {}
+  }
+  try { window.__mbModeCycle = mbCycleMode; } catch (e) {}
 
   // ---------------- 1.0.23：工具菜单「自动修复」合并「批量下载」 ----------------
   // 用户要求：工具按钮里这两个合成一个 —— 点「自动修复」时，修完信息顺手把专辑封面和歌词缓存下来。
