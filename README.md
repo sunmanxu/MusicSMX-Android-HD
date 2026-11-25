@@ -1175,3 +1175,53 @@ Capacitor 的插件方法是排队执行的 → 所有网络请求实际是**串
 | 磁盘缩略图 | 从 1181 涨到 1379 个（1.0.22~1.0.24 几轮测试自然补齐） |
 
 结论：**磁盘有图就不联网，一张都不重下**；真正会重复联网的只剩"源站确实没有封面"的那一小批，1.0.25 之后它们 72 小时内也不会再去搜。
+
+## 1.0.26（2026-11-25）
+
+两件事：① 去掉缺失歌曲名上的删除线；② 给「抓不到封面」的专辑补更多下载源。
+
+**① 缺失歌名的横线**
+
+桌面版 `style.css` 里给 `.track-row.placeholder .t-title .txt` 加了 `text-decoration: line-through`（表示"文件缺失"）。
+在 `android.css` 里覆盖成 `none` —— 安卓侧覆盖，桌面版下次同步 `style.css` 也不会把它带回来。
+
+**② 更多封面源**
+
+先查清旧链路到底坏在哪（2026-11-25 逐条实测）：
+
+- `songsearch.kugou.com/song_search_v2` → 一律 `total=0`，等于酷狗单曲源**从来没出过结果**；
+- `www.kugou.com/yy/html/api/album?album_id=` → 返回 `Access Deny !!!`；
+- `imge.kugou.com/stdmusic/600/<FileHash>.jpg` → 不是封面地址（那个 hash 是音频的）；
+- `musicbrainz.org` + `coverartarchive.org` → 503（限流），且中文流行命中率低，不做；
+- 豆瓣 `douban.com/j/search` → 403。
+
+换上的新源（都在 200ms 内返回，明文接口，设备可用）：
+
+| 源 | 接口 | 拿图方式 |
+| --- | --- | --- |
+| 酷狗专辑（新） | `mobilecdn.kugou.com/api/v3/search/album` | 返回里的 `imgurl`，把 `{size}` 换成 400 |
+| QQ 专辑（新） | `c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg?key=` | album `mid` 套 `T002R500x500M000<mid>.jpg` |
+| 酷狗单曲（重写） | `mobilecdn.kugou.com/api/v3/search/song` → `album/info` | `imgurl` 模板 |
+
+外加三处匹配逻辑修复：
+
+1. **专辑名完全一致就直接认**。古典/合辑的"歌手"字段是
+   `Anne-Sophie Mutter _ Herbert von Karajan _ ...` 这种长串，跟库里歌手永远对不上，
+   一刀切要求歌手匹配会把这些专辑全判死。
+2. **单字歌名不再整条链路跑空**。`titleVariants()` 有"标题至少 2 个字"的过滤，
+   「喂」「醒」「恋」这类单字歌名会得到空数组 → 封面链路一轮都不跑、当场返回 null。
+   现在空数组时兜一个原样标题。
+3. **专辑名是「未知专辑」时不走专辑库和 360 图片**。360 是按关键词捞图的，
+   实测给「科普知识 / My Soul」捞回一张街景照片 —— 宁可不放图，也不放一张错的。
+
+**实测（真机，曲库 1478 首 / 1297 个专辑）**
+
+- 抓不到图的专辑：**189 → 23 → 8**（1.0.22～1.0.25 几轮滚屏自然补齐了大部分，1.0.26 再补 15 个）；
+- 拿残存的 23 个硬骨头逐个跑：新链路 **20/23 命中**，老链路只有 4/23；
+- 剩下的 8 个：3 个是「未知专辑」（有意留空占位，避免抓错图），
+  5 个是源站确实没有（美波 / Kawakiwoameku、Machine Gun Kelly / Bright_ The Album、
+  Vitamin String Quartet / Merry Go Round of Life、Anne-Sophie Mutter / Vivaldi 四季、
+  A Rusty Dream / 未知专辑）。
+- 无谓联网没回潮：冷启动全库扫一遍仍只有个位数搜索请求，磁盘缩略图 1397 个。
+
+**其它**：`window.__coverSources` 里多挂了 `kugouAlbum` / `qqSmartbox`，真机上可逐个源单独打点测延迟。

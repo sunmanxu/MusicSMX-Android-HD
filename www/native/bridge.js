@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.25-android',
+    version: '1.0.26-android',
 
     // ---- 曲库 ----
     pickFolders: function () {

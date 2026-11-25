@@ -236,48 +236,34 @@ async function searchCoverQQ(artist, title) {
 // 来源 4：酷狗音乐
 async function searchCoverKugou(artist, title) {
   const keyword = encodeURIComponent(`${artist} ${title}`.trim());
-  const searchUrl = `https://songsearch.kugou.com/song_search_v2?keyword=${keyword}&page=1&pagesize=5&format=json&platform=WebFilter`;
+  // 1.0.26：旧链路在 2026-11-25 已全面失效（实测）：
+  //   · songsearch.kugou.com/song_search_v2 → 一律 total=0（等于从来没有结果）
+  //   · www.kugou.com/yy/html/api/album    → "Access Deny !!!"
+  //   · imge.kugou.com/stdmusic/600/<hash>.jpg → 不是封面地址（hash 是音频的）
+  // 换成酷狗移动端明文接口：单曲搜索拿 album_id → 专辑详情拿 imgurl（{size} 模板）。
   try {
-    const buf = await httpsGet(searchUrl, { timeout: 6000, headers: { 'Referer': 'https://www.kugou.com/' } });
+    const buf = await httpGet(`http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=${keyword}&page=1&pagesize=6`, { timeout: 6000 });
     const data = JSON.parse(buf.toString('utf8'));
-    const songs = data?.data?.lists || [];
+    const songs = (data && data.data && data.data.info) || [];
     const best = pickBestMatch(songs, artist, title, 0, (s) => ({
-      title: s.SongName || '',
-      artist: s.SingerName || '',
-      album: s.AlbumName || '',
-      duration: (s.Duration || (s.Timelength ? s.Timelength / 1000 : 0)) || 0,
-      AlbumID: s.AlbumID,
-      FileHash: s.FileHash
+      title: s.songname || '',
+      artist: s.singername || '',
+      album: s.album_name || s.albumname || '',
+      duration: (s.duration || 0) || 0,
+      albumId: s.album_id || s.albumid
     }));
-    if (!best) return null;
-    // 酷狗封面：通过 album_id 获取
-    const albumId = best.AlbumID;
-    if (!albumId) return null;
-    // 酷狗需要通过专辑详情获取封面
-    const albumUrl = `https://www.kugou.com/yy/html/api/album?album_id=${albumId}`;
-    try {
-      const abuf = await httpsGet(albumUrl, { timeout: 5000, headers: { 'Referer': 'https://www.kugou.com/' } });
-      const adata = JSON.parse(abuf.toString('utf8'));
-      const coverUrl = adata?.data?.img || adata?.img;
-      if (coverUrl) {
-        return {
-          url: coverUrl, thumbUrl: coverUrl,
-          source: '酷狗音乐',
-          artist: best.artist, album: best.album || '', title: best.title
-        };
-      }
-    } catch (e) { /* 继续尝试备用方案 */ }
-    // 备用：酷狗 CDN 封面格式
-    const hash = best.FileHash;
-    if (hash) {
-      const coverUrl = `https://imge.kugou.com/stdmusic/600/${hash}.jpg`;
-      return {
-        url: coverUrl, thumbUrl: `https://imge.kugou.com/stdmusic/200/${hash}.jpg`,
-        source: '酷狗音乐',
-        artist: best.artist, album: best.album || '', title: best.title
-      };
-    }
-    return null;
+    if (!best || !best.albumId) return null;
+    const abuf = await httpGet(`http://mobilecdn.kugou.com/api/v3/album/info?format=json&albumid=${best.albumId}`, { timeout: 5000 });
+    const adata = JSON.parse(abuf.toString('utf8'));
+    const info = adata && adata.data;
+    const img = info && (info.imgurl || (Array.isArray(info.imgurls) ? info.imgurls[0] : ''));
+    if (!img) return null;
+    return {
+      url: String(img).replace('{size}', '600'),
+      thumbUrl: String(img).replace('{size}', '200'),
+      source: '酷狗音乐',
+      artist: best.artist, album: best.album || '', title: best.title
+    };
   } catch (e) { return null; }
 }
 
@@ -378,7 +364,11 @@ async function searchCoverNetEaseAlbum(artist, album) {
       const an = norm(a.name);
       const ar = norm((a.artist && a.artist.name) || (a.artists && a.artists[0] && a.artists[0].name) || '');
       if (!wantAlbum) return false;
-      const albumOk = an === wantAlbum || an.indexOf(wantAlbum) >= 0 || wantAlbum.indexOf(an) >= 0;
+      // 1.0.26：专辑名完全相同就当命中 —— 有些古典/合辑的"歌手"字段是
+      // 「Anne-Sophie Mutter _ Herbert von Karajan _ Peter Alward _ Wiener Philharmoniker」这种长串，
+      // 跟库里的歌手永远对不上，一刀切要求歌手匹配会把这些专辑全判死。
+      if (an === wantAlbum) return true;
+      const albumOk = an.indexOf(wantAlbum) >= 0 || wantAlbum.indexOf(an) >= 0;
       if (!albumOk) return false;
       if (!wantArtist) return true;
       return ar === wantArtist || ar.indexOf(wantArtist) >= 0 || wantArtist.indexOf(ar) >= 0;
@@ -414,7 +404,8 @@ async function searchCoverKuwoAlbum(artist, album) {
     const best = albums.find(function (a) {
       const an = norm(a.name || a.album || a.falbum);
       if (!wantAlbum) return false;
-      const albumOk = an === wantAlbum || an.indexOf(wantAlbum) >= 0 || wantAlbum.indexOf(an) >= 0;
+      if (an === wantAlbum) return true;   // 1.0.26：专辑名完全一致即命中（见思念云专辑那段注释）
+      const albumOk = an.indexOf(wantAlbum) >= 0 || wantAlbum.indexOf(an) >= 0;
       if (!albumOk) return false;
       const ar = norm(a.artist || a.fartist || '');
       if (!wantArtist) return true;
@@ -430,6 +421,85 @@ async function searchCoverKuwoAlbum(artist, album) {
       source: '酷我专辑',
       artist: best.artist || best.fartist || artist,
       album: best.name || album,
+      title: ''
+    };
+  } catch (e) { return null; }
+}
+
+// ==================== 1.0.26 新增来源 9/10（补「源站搜不到封面」的那批专辑） ====================
+// 背景：真机全库 1297 个专辑里最后剩 23 个抓不到图。逐个试源的结果：
+//   老链路（iTunes/网易云/QQ老接口/酷我）只能救 4 个，**新加的两个源救了 20 个**（其中 16 个是新源独有的）。
+// 两个源都是 2026-11-25 实测可用、且都在 200ms 内返回：
+//   ① 酷狗 mobilecdn 专辑搜索：`/api/v3/search/album` 直接给 `imgurl`（模板里 {size} 换成 400）；
+//   ② QQ 音乐 smartbox：`smartbox_new.fcg?key=` 直接给专辑 mid，套 T002 模板拿 500×500 大图。
+// 顺带修掉已彻底失效的旧酷狗链路：`songsearch.kugou.com` 现在一律返回 total=0，
+// `www.kugou.com/yy/html/api/album` 返回 "Access Deny !!!"，`imge.kugou.com/stdmusic/600/<hash>.jpg` 也不是封面地址。
+function coverNormText(s) {
+  return String(s || '').toLowerCase()
+    .replace(/未知专辑/g, '')
+    .replace(/[\s_\-–—·・\.\,\!\?\'\"“”‘’()\[\]\/\\:&@#♥★☆]/g, '');
+}
+function coverSimilarity(a, b) {
+  const x = coverNormText(a), y = coverNormText(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.length >= 4 && y.indexOf(x) >= 0) return 0.8;
+  if (y.length >= 4 && x.indexOf(y) >= 0) return 0.8;
+  let common = 0;
+  for (let i = 0; i < x.length; i++) if (y.indexOf(x[i]) >= 0) common++;
+  return (common / Math.max(x.length, y.length)) * 0.6;
+}
+
+/** 来源 9：酷狗专辑搜索（mobilecdn，http 明文接口，设备上可用） */
+async function searchCoverKugouAlbum(artist, album) {
+  if (!album) return null;
+  const kw = encodeURIComponent((artist + ' ' + album).trim());
+  try {
+    const buf = await httpGet('http://mobilecdn.kugou.com/api/v3/search/album?format=json&keyword=' + kw + '&page=1&pagesize=8', { timeout: 6000 });
+    const data = JSON.parse(buf.toString('utf8'));
+    const items = (data && data.data && data.data.info) || [];
+    let best = null, bestScore = 0;
+    for (const it of items) {
+      const albumScore = coverSimilarity(it.albumname, album);
+      const score = albumScore >= 0.8 ? albumScore : albumScore * 0.7 + coverSimilarity(it.singername, artist) * 0.3;
+      if (score > bestScore) { bestScore = score; best = it; }
+    }
+    if (!best || bestScore < 0.55 || !best.imgurl) return null;
+    const big = String(best.imgurl).replace('{size}', '400');
+    return {
+      url: big, thumbUrl: String(best.imgurl).replace('{size}', '240'),
+      source: '酷狗专辑',
+      artist: best.singername || artist,
+      album: best.albumname || album,
+      title: ''
+    };
+  } catch (e) { return null; }
+}
+
+/** 来源 10：QQ 音乐 smartbox（按专辑名或歌名找 album mid，再套 T002 大图模板） */
+async function searchCoverQQSmartbox(artist, key, isAlbum) {
+  if (!key) return null;
+  try {
+    const buf = await httpsGet('https://c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg?key=' + encodeURIComponent(key) + '&g_tk=5381&format=json',
+      { timeout: 6000, headers: { 'Referer': 'https://y.qq.com/' } });
+    const data = JSON.parse(buf.toString('utf8'));
+    const list = (data && data.data && data.data.album && data.data.album.itemlist) || [];
+    let best = null, bestScore = 0;
+    for (const it of list) {
+      if (!it || !it.mid) continue;
+      const nameScore = coverSimilarity(it.name, key);
+      const score = isAlbum
+        ? (nameScore >= 0.8 ? nameScore : nameScore * 0.7 + coverSimilarity(it.singer, artist) * 0.3)
+        : nameScore * 0.5 + coverSimilarity(it.singer, artist) * 0.5;
+      if (score > bestScore) { bestScore = score; best = it; }
+    }
+    if (!best || bestScore < (isAlbum ? 0.55 : 0.5)) return null;
+    return {
+      url: 'https://y.gtimg.cn/music/photo_new/T002R500x500M000' + best.mid + '.jpg',
+      thumbUrl: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000' + best.mid + '.jpg',
+      source: 'QQ专辑',
+      artist: best.singer || artist,
+      album: best.name || '',
       title: ''
     };
   } catch (e) { return null; }
@@ -498,6 +568,14 @@ function titleVariants(title) {
   return out;
 }
 
+// 1.0.26：判断专辑名是否真的可用（「未知专辑」/空/纯符号 → 不可用，别拿它去搜专辑库）
+function coverAlbumKnown(album) {
+  const a = String(album || '').trim();
+  if (!a) return false;
+  if (/^未知专辑|^未知|^unknown|^n\/a/i.test(a)) return false;
+  return /[\u4e00-\u9fa5a-z0-9]/.test(coverNormText(a));
+}
+
 // 主函数：依次尝试多个来源；第一轮用原样标题，全都没命中再用标题变体重搜一轮
 // 1.0.20：多了三个源（网易云专辑 / 酷我专辑 / 360 图片兜底），专辑级源只在知道专辑名时才跑
 async function searchCover(artist, title, album) {
@@ -508,13 +586,20 @@ async function searchCover(artist, title, album) {
     { name: '网易云音乐', fn: searchCoverNetEase },
     { name: 'QQ音乐', fn: searchCoverQQ },
     { name: '酷狗音乐', fn: searchCoverKugou },
-    { name: '酷我音乐', fn: searchCoverKuwo }
+    { name: '酷我音乐', fn: searchCoverKuwo },
+    // 1.0.26：QQ smartbox 按歌名找专辑（冷门歌/现场版常在这里才有）
+    { name: 'QQ搜索', fn: function (a, t) { return searchCoverQQSmartbox(a, t, false); } }
   ];
-  const albumSources = album ? [
+  const albumSources = coverAlbumKnown(album) ? [
+    { name: '酷狗专辑', fn: function (a, t) { return searchCoverKugouAlbum(a, album); } },
     { name: '网易云专辑', fn: function (a, t) { return searchCoverNetEaseAlbum(a, album); } },
-    { name: '酷我专辑', fn: function (a, t) { return searchCoverKuwoAlbum(a, album); } }
+    { name: '酷我专辑', fn: function (a, t) { return searchCoverKuwoAlbum(a, album); } },
+    { name: 'QQ专辑', fn: function (a, t) { return searchCoverQQSmartbox(a, album, true); } }
   ] : [];
   const variants = titleVariants(title);
+  // 1.0.26：titleVariants 会把不足 2 个字的歌名过滤掉（喂 / 醒 / 恋 …），
+  // 结果整条封面链路一轮都不跑、当场返回 null。歌名短 ≠ 没标题，兜一个原样标题。
+  if (!variants.length && String(title || '').trim()) variants.push(String(title).trim());
   for (let round = 0; round < variants.length; round++) {
     for (const src of sources.concat(albumSources)) {
       try {
@@ -526,10 +611,14 @@ async function searchCover(artist, title, album) {
     }
   }
   // 最后一道：360 图片（小众歌/现场版/AI 翻唱专缉，正规库里都没有的时候才走这里）
-  try {
-    const r = await searchCover360Image(artist, album, variants[0] || title);
-    if (r && r.url) return r;
-  } catch (e) {}
+  // 1.0.26：专辑名是「未知专辑」时不要走 360 —— 它按关键词随便捞图，
+  // 实测给「科普知识 / My Soul」捞回一张街景照片，比没有封面还难看。
+  if (coverAlbumKnown(album)) {
+    try {
+      const r = await searchCover360Image(artist, album, variants[0] || title);
+      if (r && r.url) return r;
+    } catch (e) {}
+  }
   return null;
 }
 
@@ -544,15 +633,19 @@ async function searchCoverCandidates(artist, title, album) {
     { name: '网易云音乐', fn: searchCoverNetEase },
     { name: 'QQ音乐', fn: searchCoverQQ },
     { name: '酷狗音乐', fn: searchCoverKugou },
-    { name: '酷我音乐', fn: searchCoverKuwo }
+    { name: '酷我音乐', fn: searchCoverKuwo },
+    { name: 'QQ搜索', fn: function (a, t) { return searchCoverQQSmartbox(a, t, false); } }
   ];
-  if (album) {
+  if (coverAlbumKnown(album)) {
+    sources.push({ name: '酷狗专辑', fn: function (a, t) { return searchCoverKugouAlbum(a, album); } });
     sources.push({ name: '网易云专辑', fn: function (a, t) { return searchCoverNetEaseAlbum(a, album); } });
     sources.push({ name: '酷我专辑', fn: function (a, t) { return searchCoverKuwoAlbum(a, album); } });
+    sources.push({ name: 'QQ专辑', fn: function (a, t) { return searchCoverQQSmartbox(a, album, true); } });
   }
   const out = [];
   const seen = new Set();
   const variants = titleVariants(title);
+  if (!variants.length && String(title || '').trim()) variants.push(String(title).trim());
   for (let round = 0; round < variants.length; round++) {
     for (const src of sources) {
       try {
@@ -604,11 +697,15 @@ async function searchCoverFast(artist, title, budgetMs, album) {
     searchCoverKuwo
   ];
   // 1.0.20：知道专辑名就再并两个专辑级源（周杰伦这种单曲搜不到的，专辑库里反而有）
-  if (album) {
+  // 1.0.26：再并酷狗专辑 / QQ smartbox 专辑（实测救回 16 个老链路全灭的专辑，且都在 200ms 内返回）
+  if (coverAlbumKnown(album)) {
     sources.push(function (a, t) { return searchCoverNetEaseAlbum(a, album); });
     sources.push(function (a, t) { return searchCoverKuwoAlbum(a, album); });
+    sources.push(function (a, t) { return searchCoverKugouAlbum(a, album); });
+    sources.push(function (a, t) { return searchCoverQQSmartbox(a, album, true); });
   }
   const variants = titleVariants(title).slice(0, 2);
+  if (!variants.length && String(title || '').trim()) variants.push(String(title).trim());
   const deadline = Date.now() + (budgetMs || 3200);
   for (let round = 0; round < variants.length; round++) {
     const left = deadline - Date.now();
@@ -935,6 +1032,7 @@ async function searchLyrics(artist, title, duration) {
   let firstResult = null; // 第一个有歌词的结果（可能没有翻译）
   let otherTlyric = '';   // 其他来源拿到的译文（用于给无译文的结果跨源补全）
   const variants = titleVariants(title);
+  if (!variants.length && String(title || '').trim()) variants.push(String(title).trim());
   for (let round = 0; round < variants.length; round++) {
     const qTitle = variants[round];
     // 第二轮开始只是变体重试：上一轮已经拿到可用的原文，就别再拿变体去覆盖它
@@ -2037,7 +2135,10 @@ async function fetchPlaylistByUrl(url) {
     kugou: searchCoverKugou, kuwo: searchCoverKuwo,
     // 1.0.20 新增
     neteaseAlbum: searchCoverNetEaseAlbum, kuwoAlbum: searchCoverKuwoAlbum,
-    img360: searchCover360Image
+    img360: searchCover360Image,
+    // 1.0.26 新增
+    kugouAlbum: searchCoverKugouAlbum,
+    qqSmartbox: searchCoverQQSmartbox
   };
   window.__online = {
     searchCover, searchCoverCandidates, searchCoverFast, downloadCover,

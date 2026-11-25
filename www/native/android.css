@@ -987,6 +987,16 @@ textarea {
 .track-row .t-album { grid-column: 4 !important; max-width: 52%; }
 /* 占位的缺失歌曲整行半透明，封面跟着暗下去，别抢正在播放的行 */
 .track-row.placeholder .mb-row-cover { opacity: 0.6; }
+/* 1.0.26：桌面版 style.css 给缺失歌名加了 line-through（删除线），平板上看着像一条横线压着歌名，
+   用户要求去掉。只在安卓侧覆盖，桌面版同步 style.css 也不会把它带回来。 */
+.track-row.placeholder .t-title .txt {
+  text-decoration: none !important;
+  color: var(--text-faint);
+}
+.track-row.placeholder .t-title .txt u,
+.track-row.placeholder .t-title .txt s {
+  text-decoration: none !important;
+}
 
 /* 27.2 页脚播放条：一排到底 —— [歌曲信息] [进度条] [按钮组] [音量]
    （原先是「按钮一组 + 进度条另起一行」的上下两层，网易云是一排：
