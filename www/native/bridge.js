@@ -705,7 +705,7 @@
   const AUDIO_RE = /\.(mp3|flac|wav|ogg|oga|opus|m4a|aac|mp4|webm|aif|aiff)$/i;
 
   const mb = {
-    version: '1.0.24-android',
+    version: '1.0.25-android',
 
     // ---- 曲库 ----
     pickFolders: function () {
@@ -1889,8 +1889,10 @@
 
   // 联网取缩略图：快枪搜索 → 下 thumbUrl（小图）→ canvas 缩到 96px → 写盘
   //   顺带把各阶段失败记到 window.__thumbStats，方便在真机上直接查「到底卡在哪一步」
-  const THUMB_STATS = { ok: 0, searchFail: 0, dlFail: 0, smallFail: 0, defaultImg: 0, genericImg: 0, timeout: 0, drop: 0, failLog: [] };
+  const THUMB_STATS = { ok: 0, searchFail: 0, dlFail: 0, smallFail: 0, defaultImg: 0, genericImg: 0, timeout: 0, drop: 0, weakMemoHit: 0, failLog: [] };
   try { window.__thumbStats = THUMB_STATS; } catch (e) {}
+  // 1.0.25 调试钩子（真机取证用，不影响功能）
+  try { window.__mbThumbState = function () { return { weak: THUMB.weak.size, mem: THUMB.mem.size, fails: THUMB.fails.size, fp: THUMB.fp.size }; }; } catch (e) {}
   function thumbFail(key, stage) {
     THUMB_STATS[stage]++;
     if (THUMB_STATS.failLog.length < 30) THUMB_STATS.failLog.push(stage + ':' + key);
@@ -1903,11 +1905,96 @@
   // 但它比「一片空白 ♪」还是好看 —— 所以当「弱图」先顶上去（不落盘、标记 THUMB.weak），
   // 后台继续按 12s/24s 退避找真封面，找到了再整块换掉（见 syncRowCover / forceRepaintKey）。
   function coverFp(small) { return small.length + ':' + small.slice(-64); }
+
+  // ===== 1.0.25：把「这张是通用占位图」「这张只有弱图」跨启动记住 =====
+  // 用户反馈：杀掉进程再打开、翻歌单的时候，会看到又在网络下载一批封面。
+  // 根因有两层：
+  //   ① 通用图指纹（THUMB.fp）只在内存里 —— 冷启动后第一张撞上通用图的专辑会被当成"真封面"落盘，
+  //      而且别的专辑又要重新联网才能再次认出它是通用图；
+  //   ② 弱图（占位/共用图）不落盘、每次启动 mem 都是空的，这些专辑**每次启动都会重新联网搜一遍**，
+  //      搜到的还是同一张占位图，日复一日。
+  // 所以：已知通用图指纹落 localStorage；弱图也落盘（键 `<专辑key>|weak`），并记一个 72 小时的时间戳，
+  // 期内直接读盘贴图、零网络；到期再试一次（万一哪天源站补了真封面）。
+  const GENERIC_FP_KEY = 'mb_generic_fp_v1';
+  const WEAK_MEMO_KEY = 'mb_thumb_weak_v1';
+  const WEAK_TTL = 72 * 3600 * 1000;
+  let genericFps = null;
+  let genericDirty = false;
+  let genericTimer = 0;
+  let weakMemo = null;
+  let weakDirty = false;
+  let weakTimer = 0;
+
+  function loadGenericFps() {
+    if (genericFps) return genericFps;
+    try { genericFps = new Set(JSON.parse(localStorage.getItem(GENERIC_FP_KEY) || '[]')); }
+    catch (e) { genericFps = new Set(); }
+    genericFps.forEach(function (fp) { if (!THUMB.fp.get(fp)) THUMB.fp.set(fp, ''); });
+    return genericFps;
+  }
+  function saveGenericFpsSoon() {
+    genericDirty = true;
+    if (genericTimer) return;
+    genericTimer = setTimeout(function () {
+      genericTimer = 0;
+      if (!genericDirty) return;
+      genericDirty = false;
+      try { localStorage.setItem(GENERIC_FP_KEY, JSON.stringify(Array.from(genericFps).slice(-500))); } catch (e) {}
+    }, 3000);
+  }
+  function loadWeakMemo() {
+    if (weakMemo) return weakMemo;
+    try { weakMemo = JSON.parse(localStorage.getItem(WEAK_MEMO_KEY) || '{}') || {}; }
+    catch (e) { weakMemo = {}; }
+    return weakMemo;
+  }
+  function saveWeakMemoSoon() {
+    weakDirty = true;
+    if (weakTimer) return;
+    weakTimer = setTimeout(function () {
+      weakTimer = 0;
+      if (!weakDirty) return;
+      weakDirty = false;
+      try { localStorage.setItem(WEAK_MEMO_KEY, JSON.stringify(weakMemo)); } catch (e) {}
+    }, 3000);
+  }
+  /** 这张专辑 72 小时内是不是「只有弱图」 */
+  function weakMemoFresh(key) {
+    const m = loadWeakMemo()[key];
+    const now = Date.now();
+    if (!m) return false;
+    if (now - m > WEAK_TTL) return false;
+    return true;
+  }
+  function setWeakMemo(key, ts) {
+    const m = loadWeakMemo();
+    m[key] = ts || Date.now();
+    const keys = Object.keys(m);
+    if (keys.length > 1200) {
+      keys.sort(function (a, b) { return m[a] - m[b]; });
+      for (let i = 0; i < Math.floor(keys.length / 2); i++) delete m[keys[i]];
+    }
+    saveWeakMemoSoon();
+  }
+  function clearWeakMemo(key) {
+    const m = loadWeakMemo();
+    if (m[key]) { delete m[key]; saveWeakMemoSoon(); }
+  }
+
   function coverIsGeneric(key, small) {
     const fp = coverFp(small);
+    loadGenericFps();
+    // ① 以前就认定过是通用图 → 不用再等第二张专辑来撞
+    if (genericFps.has(fp)) return true;
     const prev = THUMB.fp.get(fp);
-    if (prev && prev !== key) return true;
-    if (THUMB.fp.size > 900) THUMB.fp.clear();
+    if (prev !== undefined && prev !== key) {
+      // ② 这张图被另一张专辑用过了 → 判定为通用图，并把它记进跨启动的黑名单
+      genericFps.add(fp);
+      THUMB.fp.set(fp, '');
+      saveGenericFpsSoon();
+      return true;
+    }
+    if (THUMB.fp.size > 900) { THUMB.fp.clear(); genericFps.forEach(function (f) { THUMB.fp.set(f, ''); }); }
     THUMB.fp.set(fp, key);
     return false;
   }
@@ -1939,6 +2026,7 @@
       const fast = O.searchCoverFast || O.searchCover;
       const search = (job.deep && typeof O.searchCover === 'function') ? O.searchCover : fast;
       if (typeof search !== 'function') { resolve(null); return; }
+      job.fromWeakMemo = false;   // 真的开始联网了，弱图记忆命中的标记要清掉
       // 拿搜索结果的图地址 → 下载 → 缩 96 → 判占位图/共用图；weak=只能当临时占位
       const take = function (info) {
         const url = info && (info.thumbUrl || info.url);
@@ -1959,9 +2047,13 @@
       search(job.artist, job.title, 2600, job.album).then(take).then(function (res) {
         if (res && res.url) {
           if (res.weak) {
-            THUMB.weak.add(job.key);      // 弱图先顶上，不写盘；后台继续找真图
+            THUMB.weak.add(job.key);      // 弱图先顶上，不当真封面
+            // 1.0.25：弱图也落盘（独立键），并记 72 小时内不再联网 —— 否则每次启动都会为这张专辑再搜一遍
+            setWeakMemo(job.key);
+            mb.saveThumb(job.key + '|weak', res.url).catch(function () {});
           } else {
             THUMB.weak.delete(job.key);
+            clearWeakMemo(job.key);
             THUMB_STATS.ok++;
             mb.saveThumb(job.key, res.url).catch(function () {});
           }
@@ -2016,8 +2108,9 @@
         THUMB.mem.set(job.key, url);
         const wasWeak = THUMB.weak.has(job.key);
         if (wasWeak) {
-          // 先贴着占位/共用图，但真封面还没到手 → 继续退避重试（找到了 forceRepaintKey 会整块换掉）
-          scheduleThumbRetry(job);
+          // 先贴着占位/共用图，但真封面还没到手 → 继续退避重试（找到了 forceRepaintKey 会整块换掉）。
+          // 例外：这张弱图是从 72 小时记忆里读出来的，本次就别再重试了，否则等于白记。
+          if (!job.fromWeakMemo) scheduleThumbRetry(job);
         } else {
           clearThumbNeg(job.key);
           THUMB.fails.delete(job.key);
@@ -2057,17 +2150,37 @@
         done(null);
       }).catch(function () { done(null); });
     };
-    // 1) 磁盘里已有的专辑缩略图
-    mb.readThumb('', 96, job.key).then(function (r) {
-      if (r && r.ok && r.dataUrl) { done(r.dataUrl); return; }
-      // 2) 联网（负缓存里的 7 天内直接跳过，别再空跑一次搜索）
-      if (thumbNegFresh(job.key)) { tryFile(); return; }
-      fetchThumbOnline(job).then(function (url) {
-        if (url) { done(url); return; }
-        markThumbNeg(job.key);
-        tryFile();
-      }).catch(function () { tryFile(); });
-    }).catch(function () { done(null); });
+    const start = function () {
+      // 1) 磁盘里已有的专辑缩略图
+      mb.readThumb('', 96, job.key).then(function (r) {
+        if (r && r.ok && r.dataUrl) { done(r.dataUrl); return; }
+        // 2) 联网（负缓存里 6 小时内直接跳过，别再空跑一次搜索）
+        if (thumbNegFresh(job.key)) { tryFile(); return; }
+        fetchThumbOnline(job).then(function (url) {
+          if (url) { done(url); return; }
+          markThumbNeg(job.key);
+          tryFile();
+        }).catch(function () { tryFile(); });
+      }).catch(function () { done(null); });
+    };
+    // 1.0.25：这张专辑 72 小时内只有「弱图」（占位/共用图）→ 直接读盘上的弱图贴上去，零网络。
+    // 否则冷启动每翻到这几十上百张专辑都要重新联网搜一遍，还是同一张占位图。
+    if (weakMemoFresh(job.key)) {
+      mb.readThumb('', 96, job.key + '|weak').then(function (r) {
+        if (r && r.ok && r.dataUrl) {
+          THUMB.weak.add(job.key);
+          THUMB_STATS.weakMemoHit++;
+          job.fromWeakMemo = true;   // 记忆命中 → 本次不再退避重试
+          done(r.dataUrl);
+          return;
+        }
+        clearWeakMemo(job.key);   // 弱图文件不在了 → 正常重新抓
+        job.fromWeakMemo = false;
+        start();
+      }).catch(function () { clearWeakMemo(job.key); job.fromWeakMemo = false; start(); });
+      return;
+    }
+    start();
   }
 
   function pumpThumbs() {
