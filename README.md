@@ -1,11 +1,11 @@
-# MusicSMX 安卓版（Capacitor 移植工程）
+# MusicSMX 安卓版（HD / 平板）
 
-桌面版（`20261115-MusicSMX-重置版`，Electron）的安卓移植。**渲染层原样复用**（app.js 一行业务逻辑都没改），
-Electron 外壳整体重写成 Android 原生桥。策略与验收标准见桌面版目录下的《安卓移植交接说明.md》。
+MusicSMX 的安卓版：本地音乐播放器，主要给平板（横屏）用。支持 SAF 选曲库、通知栏播放控制、
+专辑封面与歌词的多源自动补全、元数据批量修复，界面与桌面版保持一致。
 
-- 工程根：`E:\AI相关\工作目录-个人\20261122-MusicSMX-Android`
 - 包名：`cn.sunmanxu.musicsmx`　应用名：MusicSMX
-- 桌面版目录只读参考，未做任何修改
+- 下载安装：见 [Releases](https://github.com/sunmanxu/MusicSMX-Android-HD/releases)
+- 桌面版：[sunmanxu/MusicSMX](https://github.com/sunmanxu/MusicSMX)
 
 ## 仓库与发布
 
@@ -67,11 +67,11 @@ Electron 外壳整体重写成 Android 原生桥。策略与验收标准见桌�
 ## 本地构建
 
 ```powershell
-Set-Location E:\AI相关\工作目录-个人\20261122-MusicSMX-Android
+Set-Location <工程根>
 npx cap sync android                      # 改了 www/ 之后必须先同步，否则 APK 里还是旧页面
 Set-Location android
-$env:JAVA_HOME="E:\AI相关\工具\jdk-21"
-$env:ANDROID_HOME="E:\AI相关\工具\android-sdk"
+$env:JAVA_HOME="<JDK 路径>"
+$env:ANDROID_HOME="<Android SDK 路径>"
 .\gradlew.bat assembleDebug --console=plain
 # 产物 android\app\build\outputs\apk\debug\app-debug.apk
 ```
@@ -147,7 +147,7 @@ Ogg(Opus/Vorbis) comment、MP4 ilst（含 `covr` 封面）。读不到就按 `�
 **分批扫描**：每批 20 个文件解析标签，批与批之间推 `done/total` 进度并 `Thread.yield()`，
 避免上千首同步遍历把 WebView 顶死（桌面版老坑）。
 
-**联网元数据（1.0.2）**：`www/native/online.js` 是桌面 `src/online.js` 的逐字移植（只换了三样东西）：
+**联网元数据（1.0.2）**：`www/native/online.js` 与桌面版 `src/online.js` 逐字同步（只换了三样东西）：
 网络走原生 `httpFetch`（WebView 里 `fetch` 跨域会被 CORS 拦，抓别家 API 必须走原生）、
 酷狗逐字歌词 KRC 的 XOR+inflate 走原生 `decryptKrc`（浏览器没有 zlib）、`fs/path` 变空实现
 （封面/歌词落盘统一由 `mb.saveCover` / `mb.saveLyrics` 处理）。
@@ -158,7 +158,7 @@ Ogg(Opus/Vorbis) comment、MP4 ilst（含 `covr` 封面）。读不到就按 `�
 读不进的超 64MB 文件、非 MP3、v2.2 标签一律拒绝（回 `ok:false`），宁可不改也不写坏。
 离线验证过：重写后音频段与原文逐字节相同。
 
-## 还没做（按交接文档的阶段表）
+## 还没做的
 
 - **P4 剩余**：格式转换（原版靠内嵌 ffmpeg，安卓端 `convertToMp3/convertFormat` 仍回 `ok:false`）；
   桌面小部件。写标签只做了 **MP3/ID3v2**（FLAC/OGG/M4A 回 `ok:false` 并提示，不去动人家的文件）。
@@ -167,8 +167,8 @@ Ogg(Opus/Vorbis) comment、MP4 ilst（含 `covr` 封面）。读不到就按 `�
 
 ## 构建
 
-工具链（本机已装好，与工程分开存放，避免污染工程）：
-`E:\AI相关\工具\jdk-21`（OpenJDK 21）、`E:\AI相关\工具\android-sdk`（platform-36 / build-tools 36 / platform-tools）。
+工具链（Java 21 + Android SDK，路径按自己的环境改）：
+`<JDK 路径>`（OpenJDK 21）、`<Android SDK 路径>`（platform-36 / build-tools 36 / platform-tools）。
 `android/local.properties` 已指向该 SDK。
 
 ```powershell
@@ -177,7 +177,7 @@ npx cap sync android
 
 # 2) 出包（工程路径含中文，已在 gradle.properties 里关掉 AGP 的非 ASCII 检查）
 cd android
-$env:JAVA_HOME="E:\AI相关\工具\jdk-21"
+$env:JAVA_HOME="<JDK 路径>"
 .\gradlew.bat assembleDebug        # 产物：android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -211,13 +211,13 @@ node test/server.js           # 127.0.0.1:8123
 
 本机装了完整模拟器环境，专门用来验 Java 那一半：
 
-- SDK：`E:\AI相关\工具\android-sdk`（emulator 37.3.10 + `system-images;android-34;google_apis;x86_64`）
+- SDK：`<Android SDK 路径>`（emulator 37.3.10 + `system-images;android-34;google_apis;x86_64`）
 - 加速：AEHD 内核驱动（`extras;google;Android_Emulator_Hypervisor_Driver`，`sc query aehd` 应为 RUNNING）
 - AVD：`musicsmx`
 
 ```powershell
 # 启动（无窗口，靠 adb 截图/操作）
-& "E:\AI相关\工具\android-sdk\emulator\emulator.exe" -avd musicsmx -no-snapshot -gpu swiftshader_indirect
+& "<Android SDK 路径>\emulator\emulator.exe" -avd musicsmx -no-snapshot -gpu swiftshader_indirect
 # 万一 userdata 镜像又报 "Image is not in qcow2 format"，加 -wipe-data 重建一次即可
 ```
 
@@ -571,7 +571,7 @@ bridge 启动时往侧栏底部插 `#mb-corner-ver`（`position: sticky; bottom:
 **改动**
 
 - 图标不再是重新画的，直接复用桌面版原始素材
-  `E:\AI相关\工作目录-个人\20261115-MusicSMX-重置版\build\icon.png`（1024×1024）：
+  <桌面版工程>\build\icon.png（1024×1024）：
   深蓝底（`#0C1F3D`）+ 橙色 S，与电脑端一模一样。
 - 生成方式：先把原图按 22% 圆角做遮罩（原图四角是不透明的 `#1A1D26`，不裁掉会在
   launcher 上露出方角），再由这一张母版派生全部尺寸，保证各处图标完全同源：
